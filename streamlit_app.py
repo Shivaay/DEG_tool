@@ -23,7 +23,7 @@ st.set_page_config(page_title="Transcriptomics DEG Tool", layout="wide")
 
 # ---------- CONFIG ----------
 # Demo file path (the developer requested this local path be available as demo)
-demo_local_path = "/mnt/data/GSE269528_gene.description.xls.txt.gz"
+demo_local_path = "/main/GSE269528_gene.description.xls.txt.gz"
 
 # ---------- HELPERS ----------
 def read_bytes_to_df(b: bytes, name_hint: str = None):
