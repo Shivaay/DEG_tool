@@ -54,7 +54,7 @@ def volcano_plot(df, gene_col, fc_col, p_col, fc_cut, p_cut, colors):
         ns[fc_col],
         -np.log10(ns[p_col]),
         s=6,
-        c="lightgrey",
+        c=colors["ns"],
         label="Not significant"
     )
 
@@ -155,7 +155,6 @@ gene_col = st.selectbox("Select gene column", df.columns)
 fc_col = st.selectbox("Select logFC column", df.columns)
 p_col = st.selectbox("Select p-value column", df.columns)
 
-# Ensure numeric
 df[fc_col] = pd.to_numeric(df[fc_col], errors="coerce")
 df[p_col] = pd.to_numeric(df[p_col], errors="coerce")
 df = df.dropna(subset=[fc_col, p_col])
@@ -176,7 +175,7 @@ p_cut = st.slider(
 )
 
 top_n = st.selectbox(
-    "Top genes to export",
+    "Top genes to use downstream",
     [50, 100, 200, 500, 1000]
 )
 
@@ -188,6 +187,7 @@ hub_method = st.selectbox(
 colors = {
     "up": st.color_picker("Upregulated gene color", "#d62728"),
     "down": st.color_picker("Downregulated gene color", "#1f77b4"),
+    "ns": st.color_picker("Non-significant gene color", "#bdbdbd"),
     "network": st.color_picker("Network color", "#2ca02c")
 }
 
@@ -195,7 +195,6 @@ colors = {
 
 if st.button("Run Analysis"):
 
-    # Volcano
     fig, sig = volcano_plot(
         df, gene_col, fc_col, p_col,
         fc_cut, p_cut, colors
@@ -206,7 +205,6 @@ if st.button("Run Analysis"):
         st.warning("No genes passed the selected filters")
         st.stop()
 
-    # Gene list
     gene_list = (
         sig.sort_values(p_col)
         .head(top_n)[gene_col]
@@ -214,7 +212,7 @@ if st.button("Run Analysis"):
         .tolist()
     )
 
-    # ---------------- HEATMAP (SAFE) ----------------
+    # ---------------- HEATMAP ----------------
 
     expr_cols = [
         c for c in df.columns
@@ -229,7 +227,7 @@ if st.button("Run Analysis"):
         if len(valid_genes) >= 2:
             st.pyplot(heatmap_plot(expr, valid_genes))
         else:
-            st.info("Heatmap skipped: filtered genes not present in expression data")
+            st.info("Heatmap skipped: genes not found in expression matrix")
     else:
         st.info("Heatmap skipped: no expression data detected")
 
@@ -242,8 +240,8 @@ if st.button("Run Analysis"):
     )
 
     if net_fig:
-        st.pyplot(net_fig)
         st.subheader("Top 10 Hub Genes")
+        st.pyplot(net_fig)
         st.dataframe(hub_df)
 
     # ---------------- gPROFILER ----------------
@@ -255,8 +253,17 @@ if st.button("Run Analysis"):
     )
 
     if not gp_res.empty:
-        st.subheader("gProfiler Functional Enrichment")
+        st.subheader("Functional Enrichment (gProfiler)")
         st.dataframe(gp_res)
+
+        st.subheader("KEGG Pathways")
+        st.dataframe(gp_res[gp_res["source"] == "KEGG"])
+
+        st.subheader("GO: Biological Process (BP)")
+        st.dataframe(gp_res[gp_res["source"] == "GO:BP"])
+
+        st.subheader("GO: Molecular Function (MF)")
+        st.dataframe(gp_res[gp_res["source"] == "GO:MF"])
 
     # ---------------- DOWNLOAD ----------------
 
@@ -266,13 +273,11 @@ if st.button("Run Analysis"):
         os.path.join(tmp_dir, "Filtered_DEG.xlsx"),
         index=False
     )
-
     hub_df.to_excel(
         os.path.join(tmp_dir, "Hub_Genes.xlsx")
     )
-
     gp_res.to_excel(
-        os.path.join(tmp_dir, "gProfiler_Results.xlsx"),
+        os.path.join(tmp_dir, "gProfiler_All.xlsx"),
         index=False
     )
 
