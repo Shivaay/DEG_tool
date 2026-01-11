@@ -1,5 +1,5 @@
 # ==========================================================
-# DEG Analysis Toolkit – Fully Error-Proof Version
+# DEG Analysis Toolkit — LogFC & P-value Based
 # ==========================================================
 
 import streamlit as st
@@ -10,30 +10,12 @@ import io, os, gzip, zipfile, tempfile
 import matplotlib.pyplot as plt
 import seaborn as sns
 import networkx as nx
-
-from scipy.stats import ttest_ind
-from statsmodels.stats.multitest import multipletests
 from gprofiler import GProfiler
 
 # ---------------- CONFIG ----------------
 
 st.set_page_config("DEG Professional Toolkit", layout="wide")
 sns.set(style="white")
-
-# ---------------- DEMO DATA ----------------
-
-def load_demo_dataset(n_genes=20000):
-    np.random.seed(1)
-    genes = [f"Gene_{i}" for i in range(1, n_genes + 1)]
-    ctrl = np.random.poisson(50, (n_genes, 3))
-    trt = np.random.poisson(80, (n_genes, 3))
-
-    df = pd.DataFrame(
-        np.hstack([ctrl, trt]),
-        columns=["Ctrl_1", "Ctrl_2", "Ctrl_3", "Treat_1", "Treat_2", "Treat_3"]
-    )
-    df.insert(0, "Gene", genes)
-    return df
 
 # ---------------- FILE LOADER ----------------
 
@@ -48,77 +30,39 @@ def load_uploaded(file):
             return pd.read_csv(f, sep=None, engine="python")
     return pd.read_csv(io.BytesIO(raw), sep=None, engine="python")
 
-# ---------------- DATA PREP ----------------
+# ---------------- PLOTS ----------------
 
-def prepare_expression(df):
-    gene_col = df.columns[0]
-    expr = df.drop(columns=[gene_col])
-    expr = expr.apply(pd.to_numeric, errors="coerce").fillna(0)
-    expr.index = df[gene_col].astype(str)
-    return expr
+def plot_volcano(df, gene_col, fc_col, p_col, fc_cut, p_cut, colors):
 
-# ---------------- DEG ----------------
+    sig = df[
+        ((df[fc_col] >= fc_cut) | (df[fc_col] <= -fc_cut))
+        & (df[p_col] <= p_cut)
+    ]
 
-def compute_deg(expr, ctrl, treat):
-
-    # HARD VALIDATION (prevents zero-size error)
-    if len(ctrl) < 2 or len(treat) < 2:
-        raise ValueError("Each group must contain at least 2 samples")
-
-    logmat = np.log2(expr + 1)
-
-    logFC = logmat[treat].mean(axis=1) - logmat[ctrl].mean(axis=1)
-
-    pvals = ttest_ind(
-        logmat[treat].values,
-        logmat[ctrl].values,
-        axis=1,
-        equal_var=False
-    ).pvalue
-
-    padj = multipletests(pvals, method="fdr_bh")[1]
-
-    return pd.DataFrame(
-        {"log2FC": logFC, "pvalue": pvals, "padj": padj},
-        index=expr.index
-    )
-
-# ---------------- VOLCANO ----------------
-
-def plot_volcano(de, fc_cut, padj_cut, colors):
-
-    sig = de[(abs(de.log2FC) >= fc_cut) & (de.padj <= padj_cut)]
-    up = sig[sig.log2FC > 0]
-    down = sig[sig.log2FC < 0]
-    ns = de.drop(sig.index)
+    up = sig[sig[fc_col] > 0]
+    down = sig[sig[fc_col] < 0]
+    ns = df.drop(sig.index)
 
     fig, ax = plt.subplots(figsize=(7, 6))
-    ax.scatter(ns.log2FC, -np.log10(ns.pvalue), c="lightgrey", s=6)
-    ax.scatter(up.log2FC, -np.log10(up.pvalue), c=colors["up"], s=10)
-    ax.scatter(down.log2FC, -np.log10(down.pvalue), c=colors["down"], s=10)
+
+    ax.scatter(ns[fc_col], -np.log10(ns[p_col]), c="lightgrey", s=6)
+    ax.scatter(up[fc_col], -np.log10(up[p_col]), c=colors["up"], s=10)
+    ax.scatter(down[fc_col], -np.log10(down[p_col]), c=colors["down"], s=10)
 
     ax.set_title(
-        f"Total genes: {len(de)} | Up: {len(up)} | Down: {len(down)}",
+        f"Total: {len(df)} | Up: {len(up)} | Down: {len(down)}",
         fontsize=10
     )
 
-    ax.set_xlabel("log2FC")
+    ax.set_xlabel("logFC")
     ax.set_ylabel("-log10(p-value)")
     return fig, sig
 
-# ---------------- HEATMAP ----------------
-
 def plot_heatmap(expr, genes):
-
-    if len(genes) == 0:
-        return None
-
     fig, ax = plt.subplots(figsize=(8, 6))
     sns.heatmap(expr.loc[genes], cmap="vlag", ax=ax)
     ax.set_ylabel("Gene")
     return fig
-
-# ---------------- HUB NETWORK ----------------
 
 def plot_hub_network(genes, method, color):
 
@@ -143,40 +87,43 @@ def plot_hub_network(genes, method, color):
     nx.draw(G, pos, nodelist=hub, node_color=color, with_labels=True, ax=ax)
     return fig, pd.Series(score).sort_values(ascending=False).head(10)
 
-# ---------------- GPROFILER ----------------
-
-def run_gprofiler(genes):
-
-    if len(genes) < 5:
-        return pd.DataFrame()
-
-    gp = GProfiler(return_dataframe=True)
-    return gp.profile(organism="hsapiens", query=genes)
-
 # ---------------- UI ----------------
 
-st.title("Professional DEG Analysis Toolkit")
+st.title("DEG Analysis Toolkit (logFC & p-value based)")
 
-uploaded = st.file_uploader("Upload Expression Matrix")
+uploaded = st.file_uploader("Upload DEG results (CSV / TSV / XLSX / GZ)")
 
-if st.button("Load Demo Dataset"):
-    df = load_demo_dataset()
-elif uploaded:
-    df = load_uploaded(uploaded)
-else:
-    st.info("Upload a file or load demo dataset")
+if uploaded is None:
+    st.info("Upload a DEG result file to begin")
     st.stop()
 
-expr = prepare_expression(df)
+df = load_uploaded(uploaded)
+st.success(f"Loaded {df.shape[0]} genes")
 
-st.success(f"{expr.shape[0]} genes | {expr.shape[1]} samples loaded")
+st.dataframe(df.head())
 
-ctrl = st.multiselect("Control samples (≥2)", expr.columns, expr.columns[:3])
-treat = st.multiselect("Treatment samples (≥2)", expr.columns, expr.columns[3:6])
+# ---------------- COLUMN SELECTION ----------------
 
-fc_cut = st.selectbox("log2FC cutoff", [1, 2, 3, 4, 5])
-padj_cut = st.slider("Adjusted p-value cutoff", 0.001, 0.1, 0.05)
-top_n = st.selectbox("Top genes to export", [50, 100, 200, 500])
+gene_col = st.selectbox("Gene column", df.columns)
+fc_col = st.selectbox("logFC column", df.columns)
+p_col = st.selectbox("p-value column", df.columns)
+
+# Force numeric
+df[fc_col] = pd.to_numeric(df[fc_col], errors="coerce")
+df[p_col] = pd.to_numeric(df[p_col], errors="coerce")
+df = df.dropna(subset=[fc_col, p_col])
+
+# ---------------- FILTERS ----------------
+
+fc_cut = st.selectbox(
+    "logFC cutoff",
+    list(range(-9, 0)) + list(range(1, 10)),
+    index=8
+)
+
+p_cut = st.slider("p-value cutoff", 0.0001, 0.1, 0.05)
+
+top_n = st.selectbox("Top genes for downstream analysis", [50, 100, 200, 500])
 
 colors = {
     "up": st.color_picker("Upregulated color", "#d62728"),
@@ -190,36 +137,40 @@ hub_method = st.selectbox("Hub gene method", ["Degree", "MCC"])
 
 if st.button("Run Analysis"):
 
-    try:
-        de = compute_deg(expr, ctrl, treat)
-    except Exception as e:
-        st.error(str(e))
-        st.stop()
+    fig, sig = plot_volcano(
+        df, gene_col, fc_col, p_col, abs(fc_cut), p_cut, colors
+    )
 
-    fig, sig = plot_volcano(de, fc_cut, padj_cut, colors)
     st.pyplot(fig)
 
     if sig.empty:
-        st.warning("No significant genes found with current filters")
+        st.warning("No genes passed the selected filters")
         st.stop()
 
-    genes = sig.sort_values("padj").head(top_n).index.tolist()
+    genes = sig.sort_values(p_col).head(top_n)[gene_col].astype(str).tolist()
 
-    heat = plot_heatmap(expr, genes)
-    if heat:
-        st.pyplot(heat)
+    # Heatmap requires expression values → optional
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    if len(numeric_cols) > 2:
+        expr = df.set_index(gene_col)[numeric_cols]
+        st.pyplot(plot_heatmap(expr, genes))
 
     net_fig, hub_df = plot_hub_network(genes[:50], hub_method, colors["network"])
     if net_fig:
         st.pyplot(net_fig)
         st.dataframe(hub_df)
 
-    gp = run_gprofiler(genes)
-    if not gp.empty:
-        st.dataframe(gp)
+    gp = GProfiler(return_dataframe=True).profile(
+        organism="hsapiens",
+        query=genes
+    )
+    st.dataframe(gp)
+
+    # ---------------- DOWNLOAD ----------------
 
     tmp = tempfile.mkdtemp()
-    sig.to_excel(os.path.join(tmp, "DEG_results.xlsx"))
+    sig.to_excel(os.path.join(tmp, "Filtered_DEG.xlsx"), index=False)
+    hub_df.to_excel(os.path.join(tmp, "Hub_genes.xlsx"))
     gp.to_excel(os.path.join(tmp, "gProfiler.xlsx"))
 
     zip_path = os.path.join(tmp, "Results.zip")
@@ -227,6 +178,10 @@ if st.button("Run Analysis"):
         for f in os.listdir(tmp):
             z.write(os.path.join(tmp, f), f)
 
-    st.download_button("Download all results", open(zip_path, "rb"), "DEG_results.zip")
+    st.download_button(
+        "Download all results",
+        open(zip_path, "rb"),
+        "DEG_results.zip"
+    )
 
     st.success("Analysis completed successfully")
