@@ -1,11 +1,13 @@
 # ==========================================================
-# FULL DEG ANALYSIS TOOLKIT (LogFC-based)
+# FULL DEG ANALYSIS TOOLKIT WITH REAL BIOLOGICAL NETWORKS
+# STRING + TRRUST + miRTarBase
 # ==========================================================
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import io, gzip, os, tempfile, zipfile
+import requests
 
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -28,77 +30,61 @@ def load_file(uploaded):
             return pd.read_csv(f, sep=None, engine="python")
     return pd.read_csv(io.BytesIO(raw), sep=None, engine="python")
 
-# ---------------- VOLCANO ----------------
-def volcano_plot(df, gene_col, fc_col, p_col, neg_fc, pos_fc, p_cut, colors):
+# ---------------- STRING API ----------------
+def fetch_string_ppi(genes, score_cutoff=700, species=9606):
+    interactions = []
+    genes_str = "%0d".join(genes)
 
-    sig = df[
-        ((df[fc_col] <= neg_fc) | (df[fc_col] >= pos_fc)) &
-        (df[p_col] <= p_cut)
-    ]
-
-    up = sig[sig[fc_col] > 0]
-    down = sig[sig[fc_col] < 0]
-    ns = df.drop(sig.index)
-
-    fig, ax = plt.subplots(figsize=(7, 6))
-
-    ax.scatter(ns[fc_col], -np.log10(ns[p_col]), c=colors["ns"], s=6)
-    ax.scatter(up[fc_col], -np.log10(up[p_col]), c=colors["up"], s=10)
-    ax.scatter(down[fc_col], -np.log10(down[p_col]), c=colors["down"], s=10)
-
-    ax.axvline(neg_fc, linestyle="--", color="black")
-    ax.axvline(pos_fc, linestyle="--", color="black")
-    ax.axhline(-np.log10(p_cut), linestyle="--", color="black")
-
-    ax.set_xlabel("logFC")
-    ax.set_ylabel("-log10(p-value)")
-    ax.set_title(
-        f"Total: {len(df)} | Up: {len(up)} | Down: {len(down)}",
-        fontsize=10
+    url = (
+        "https://string-db.org/api/tsv/network"
+        f"?identifiers={genes_str}"
+        f"&species={species}"
+        f"&required_score={score_cutoff}"
     )
 
-    return fig, sig
+    try:
+        r = requests.get(url, timeout=15)
+        r.raise_for_status()
+        for line in r.text.split("\n")[1:]:
+            parts = line.split("\t")
+            if len(parts) > 5:
+                interactions.append((parts[2], parts[3]))
+    except Exception:
+        return []
 
-# ---------------- HUB NETWORK ----------------
-def build_ppi_network(genes, hub_size, method):
+    return interactions
 
-    genes = genes[:hub_size]
-    G = nx.Graph()
+# ---------------- TRRUST LOADER ----------------
+@st.cache_data
+def load_trrust():
+    url = "https://raw.githubusercontent.com/SlowhandedBio/TRRUST/master/data/trrust_rawdata.human.tsv"
+    df = pd.read_csv(url, sep="\t", header=None)
+    df.columns = ["TF", "Target", "Mode", "PMID"]
+    return df
 
-    for g in genes:
-        G.add_node(g)
+# ---------------- miRTarBase (USER UPLOAD) ----------------
+def load_mirtarbase(upload):
+    if upload is None:
+        return None
+    return load_file(upload)
 
-    for i in range(len(genes)):
-        for j in range(i + 1, min(i + 3, len(genes))):
-            G.add_edge(genes[i], genes[j])
-
-    if method == "Degree":
-        score = nx.degree_centrality(G)
-    else:
-        score = {
-            n: sum(len(c) for c in nx.find_cliques(G) if n in c)
-            for n in G.nodes()
-        }
-
-    hubs = sorted(score, key=score.get, reverse=True)
-    return G, pd.Series(score).sort_values(ascending=False)
-
-def draw_network(G, color):
+# ---------------- NETWORK DRAW ----------------
+def draw_network(G, title, color):
     fig, ax = plt.subplots(figsize=(7, 6))
     pos = nx.spring_layout(G, seed=42)
-
     nx.draw(
         G, pos,
         with_labels=True,
         node_color=color,
-        node_size=1200,
+        node_size=900,
         font_size=8,
         ax=ax
     )
+    ax.set_title(title)
     return fig
 
 # ---------------- UI ----------------
-st.title("🧬 Full DEG Analysis Toolkit")
+st.title("🧬 Full DEG Analysis Toolkit (Real Biological Networks)")
 
 uploaded = st.file_uploader("Upload DEG results (CSV / TSV / XLSX / GZ)")
 if uploaded is None:
@@ -116,73 +102,79 @@ df[p_col] = pd.to_numeric(df[p_col], errors="coerce")
 df = df.dropna(subset=[fc_col, p_col])
 
 # ---------------- FILTERING ----------------
-st.subheader("DEG Filtering")
-
 neg_fc = st.slider("Negative logFC (≤)", -10, -1, -1)
 pos_fc = st.slider("Positive logFC (≥)", 1, 10, 1)
 p_cut = st.slider("p-value cutoff", 0.0001, 0.1, 0.05)
 
-colors = {
-    "up": st.color_picker("Upregulated color", "#d62728"),
-    "down": st.color_picker("Downregulated color", "#1f77b4"),
-    "ns": st.color_picker("Non-significant color", "#bdbdbd"),
-    "network": st.color_picker("Network color", "#ff7f0e")
-}
+filtered = df[
+    ((df[fc_col] <= neg_fc) | (df[fc_col] >= pos_fc)) &
+    (df[p_col] <= p_cut)
+]
 
-if st.button("Run DEG Analysis"):
+if filtered.empty:
+    st.warning("No genes passed filters")
+    st.stop()
 
-    # Volcano
-    fig, sig = volcano_plot(
-        df, gene_col, fc_col, p_col,
-        neg_fc, pos_fc, p_cut, colors
-    )
-    st.pyplot(fig)
+genes = filtered[gene_col].astype(str).tolist()
 
-    if sig.empty:
-        st.warning("No genes passed the selected thresholds")
-        st.stop()
+# ---------------- STRING PPI ----------------
+st.subheader("STRING Protein–Protein Interaction Network")
 
-    # ---------------- HUB GENES ----------------
-    st.subheader("Hub Gene Analysis")
+score = st.slider("STRING confidence score", 400, 900, 700)
+ppi_edges = fetch_string_ppi(genes[:100], score)
 
-    up_n = st.selectbox("Top upregulated genes", [10, 20, 50, 100])
-    down_n = st.selectbox("Top downregulated genes", [10, 20, 50, 100])
+if ppi_edges:
+    G_ppi = nx.Graph()
+    G_ppi.add_edges_from(ppi_edges)
+    st.pyplot(draw_network(G_ppi, "STRING PPI Network", "#ff7f0e"))
+else:
+    st.info("No STRING interactions found or API unavailable")
 
-    up_genes = (
-        sig[sig[fc_col] > 0]
-        .sort_values(fc_col, ascending=False)
-        .head(up_n)[gene_col].astype(str).tolist()
-    )
+# ---------------- TRRUST TF NETWORK ----------------
+st.subheader("TF–Gene Regulatory Network (TRRUST)")
 
-    down_genes = (
-        sig[sig[fc_col] < 0]
-        .sort_values(fc_col)
-        .head(down_n)[gene_col].astype(str).tolist()
-    )
+trrust = load_trrust()
+tf_edges = trrust[trrust["Target"].isin(genes)][["TF", "Target"]].values.tolist()
 
-    selected_genes = up_genes + down_genes
+if tf_edges:
+    G_tf = nx.DiGraph()
+    G_tf.add_edges_from(tf_edges)
+    st.pyplot(draw_network(G_tf, "TRRUST TF–Gene Network", "#1f77b4"))
+else:
+    st.info("No TF interactions found in TRRUST")
 
-    hub_size = st.selectbox("Hub size", [10, 20, 30, 50])
-    hub_method = st.selectbox("Hub method", ["Degree", "MCC"])
+# ---------------- miRTarBase ----------------
+st.subheader("miRNA–mRNA Regulatory Network")
 
-    G, hub_scores = build_ppi_network(selected_genes, hub_size, hub_method)
-    st.pyplot(draw_network(G, colors["network"]))
-    st.dataframe(hub_scores.head(hub_size))
+mir_upload = st.file_uploader(
+    "Upload miRTarBase file (optional)", key="mir"
+)
 
-    # ---------------- ENRICHMENT ----------------
-    st.subheader("Functional Enrichment")
+mir_df = load_mirtarbase(mir_upload)
+if mir_df is not None:
+    cols = mir_df.columns.tolist()
+    mir = mir_df[mir_df[cols[1]].isin(genes)]
+    edges = mir[[cols[0], cols[1]]].values.tolist()
+    G_mir = nx.DiGraph()
+    G_mir.add_edges_from(edges)
+    st.pyplot(draw_network(G_mir, "miRNA–mRNA Network", "#2ca02c"))
+else:
+    st.info("Upload miRTarBase file to enable miRNA network")
 
-    gp = GProfiler(return_dataframe=True)
-    enrich = gp.profile(organism="hsapiens", query=selected_genes)
+# ---------------- FUNCTIONAL ENRICHMENT ----------------
+st.subheader("Functional Enrichment (gProfiler)")
 
-    st.dataframe(enrich)
-    st.subheader("KEGG Pathways")
-    st.dataframe(enrich[enrich["source"] == "KEGG"])
-    st.subheader("GO: Biological Process")
-    st.dataframe(enrich[enrich["source"] == "GO:BP"])
-    st.subheader("GO: Molecular Function")
-    st.dataframe(enrich[enrich["source"] == "GO:MF"])
-    st.subheader("GO: Cellular Component")
-    st.dataframe(enrich[enrich["source"] == "GO:CC"])
+gp = GProfiler(return_dataframe=True)
+enrich = gp.profile(organism="hsapiens", query=genes)
 
-    st.success("Full DEG analysis completed successfully ✅")
+st.dataframe(enrich)
+st.subheader("KEGG")
+st.dataframe(enrich[enrich["source"] == "KEGG"])
+st.subheader("GO:BP")
+st.dataframe(enrich[enrich["source"] == "GO:BP"])
+st.subheader("GO:MF")
+st.dataframe(enrich[enrich["source"] == "GO:MF"])
+st.subheader("GO:CC")
+st.dataframe(enrich[enrich["source"] == "GO:CC"])
+
+st.success("Full DEG analysis with real biological networks completed ✅")
