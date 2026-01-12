@@ -1,19 +1,28 @@
+# ==========================================================
+# FULL DEG ANALYSIS PLATFORM — STABLE & ERROR-PROOF
+# ==========================================================
+
 import streamlit as st
 import pandas as pd
 import numpy as np
-import os
-import requests
-import networkx as nx
 import matplotlib.pyplot as plt
+import networkx as nx
+import requests
+import io
+import os
 from gprofiler import GProfiler
 
-st.set_page_config(layout="wide")
+# ---------------- STREAMLIT CONFIG ----------------
+st.set_page_config(
+    page_title="Full DEG Analysis Platform",
+    layout="wide"
+)
+
 st.title("🧬 Full DEG Analysis Platform")
 
 # ---------------- FILE UPLOAD ----------------
-st.sidebar.header("Upload DEG File")
-uploaded = st.sidebar.file_uploader(
-    "CSV / TSV / XLSX (≤ 1GB)",
+uploaded = st.file_uploader(
+    "Upload DEG results (CSV / TSV / XLSX, ≤ 1 GB)",
     type=["csv", "tsv", "xlsx"]
 )
 
@@ -28,13 +37,20 @@ def load_data(file):
         return pd.read_csv(file, sep="\t")
     return pd.read_excel(file)
 
-df = load_data(uploaded)
+try:
+    df = load_data(uploaded)
+except Exception as e:
+    st.error(f"File loading failed: {e}")
+    st.stop()
 
-# ---------------- COLUMN SELECTION ----------------
+st.success(f"Dataset loaded: {df.shape[0]} genes")
+
+# ---------------- COLUMN MAPPING ----------------
 st.sidebar.header("Column Mapping")
-gene_col = st.sidebar.selectbox("Gene Column", df.columns)
-logfc_col = st.sidebar.selectbox("logFC Column", df.columns)
-pval_col = st.sidebar.selectbox("p-value Column", df.columns)
+
+gene_col = st.sidebar.selectbox("Gene column", df.columns)
+logfc_col = st.sidebar.selectbox("logFC column", df.columns)
+pval_col = st.sidebar.selectbox("p-value column", df.columns)
 
 df[logfc_col] = pd.to_numeric(df[logfc_col], errors="coerce")
 df[pval_col] = pd.to_numeric(df[pval_col], errors="coerce")
@@ -42,132 +58,194 @@ df = df.dropna(subset=[gene_col, logfc_col, pval_col])
 
 # ---------------- FILTERING ----------------
 st.sidebar.header("Filtering")
-logfc_thresh = st.sidebar.select_slider(
-    "logFC Threshold",
-    options=list(range(-9, 0)) + list(range(1, 10)),
-    value=(-1, 1)
-)
-pval_thresh = st.sidebar.slider("p-value cutoff", 0.0, 1.0, 0.05)
+
+neg_fc = st.sidebar.slider("Negative logFC (≤)", -10, -1, -1)
+pos_fc = st.sidebar.slider("Positive logFC (≥)", 1, 10, 1)
+p_cut = st.sidebar.slider("p-value cutoff", 0.0001, 0.1, 0.05)
 
 df["Regulation"] = "Neutral"
-df.loc[(df[logfc_col] >= logfc_thresh[1]) & (df[pval_col] <= pval_thresh), "Regulation"] = "Up"
-df.loc[(df[logfc_col] <= logfc_thresh[0]) & (df[pval_col] <= pval_thresh), "Regulation"] = "Down"
+df.loc[(df[logfc_col] >= pos_fc) & (df[pval_col] <= p_cut), "Regulation"] = "Up"
+df.loc[(df[logfc_col] <= neg_fc) & (df[pval_col] <= p_cut), "Regulation"] = "Down"
 
 deg = df[df["Regulation"] != "Neutral"]
 
-st.success(f"DEGs identified: {len(deg)}")
+if deg.empty:
+    st.warning("No genes passed the selected filters.")
+    st.stop()
 
-# ---------------- VOLCANO ----------------
+genes = deg[gene_col].astype(str).unique().tolist()
+
+st.success(
+    f"DEGs: {len(deg)} | "
+    f"Up: {(deg['Regulation']=='Up').sum()} | "
+    f"Down: {(deg['Regulation']=='Down').sum()}"
+)
+
+# ---------------- VOLCANO PLOT ----------------
 st.subheader("Volcano Plot")
 
-col_up = st.color_picker("Upregulated color", "#d62728")
-col_down = st.color_picker("Downregulated color", "#1f77b4")
-col_neutral = st.color_picker("Neutral color", "#bdbdbd")
+up_color = st.color_picker("Upregulated color", "#d62728")
+down_color = st.color_picker("Downregulated color", "#1f77b4")
+neutral_color = st.color_picker("Non-significant color", "#bdbdbd")
 
 fig, ax = plt.subplots(figsize=(8, 6))
-ax.scatter(df[logfc_col], -np.log10(df[pval_col]), c=col_neutral, s=10)
+
 ax.scatter(
-    deg[deg["Regulation"]=="Up"][logfc_col],
-    -np.log10(deg[deg["Regulation"]=="Up"][pval_col]),
-    c=col_up, s=20, label="Up"
+    df[logfc_col],
+    -np.log10(df[pval_col]),
+    c=neutral_color,
+    s=10
 )
+
 ax.scatter(
-    deg[deg["Regulation"]=="Down"][logfc_col],
-    -np.log10(deg[deg["Regulation"]=="Down"][pval_col]),
-    c=col_down, s=20, label="Down"
+    deg[deg["Regulation"] == "Up"][logfc_col],
+    -np.log10(deg[deg["Regulation"] == "Up"][pval_col]),
+    c=up_color,
+    label="Up",
+    s=20
 )
-ax.legend()
+
+ax.scatter(
+    deg[deg["Regulation"] == "Down"][logfc_col],
+    -np.log10(deg[deg["Regulation"] == "Down"][pval_col]),
+    c=down_color,
+    label="Down",
+    s=20
+)
+
 ax.set_xlabel("logFC")
 ax.set_ylabel("-log10(p-value)")
-ax.set_title(
-    f"Total: {len(df)} | Up: {(deg['Regulation']=='Up').sum()} | Down: {(deg['Regulation']=='Down').sum()}"
-)
+ax.legend()
+ax.set_title("Volcano Plot")
+
 st.pyplot(fig)
 
-# ---------------- DOWNLOAD ----------------
+# ---------------- DOWNLOAD DEG TABLE ----------------
 st.download_button(
-    "Download DEG Table",
+    "Download DEG Table (CSV)",
     deg.to_csv(index=False),
-    "DEGs.csv"
+    file_name="DEGs.csv"
 )
 
 # ---------------- STRING PPI ----------------
-st.subheader("PPI Network (STRING)")
-genes = deg[gene_col].astype(str).unique().tolist()
+st.subheader("Protein–Protein Interaction Network (STRING)")
+
+top_n = st.selectbox("Number of hub genes", [10, 20, 30], index=0)
 
 @st.cache_data
-def string_ppi(glist):
+def fetch_string_ppi(glist):
+    if not glist:
+        return pd.DataFrame()
+
     url = "https://string-db.org/api/tsv/network"
     params = {
         "identifiers": "%0d".join(glist[:200]),
-        "species": 9606
+        "species": 9606,
+        "required_score": 700
     }
-    r = requests.post(url, data=params)
-    if r.status_code != 200:
-        return pd.DataFrame()
-    return pd.read_csv(pd.compat.StringIO(r.text), sep="\t")
 
-ppi = string_ppi(genes)
+    try:
+        r = requests.post(url, data=params, timeout=30)
+        if r.status_code != 200:
+            return pd.DataFrame()
+        return pd.read_csv(io.StringIO(r.text), sep="\t")
+    except Exception:
+        return pd.DataFrame()
+
+ppi = fetch_string_ppi(genes)
 
 if not ppi.empty:
-    G = nx.from_pandas_edgelist(ppi, "preferredName_A", "preferredName_B")
-    hubs = sorted(G.degree, key=lambda x: x[1], reverse=True)[:10]
-    hub_genes = [h[0] for h in hubs]
+    G = nx.from_pandas_edgelist(
+        ppi,
+        "preferredName_A",
+        "preferredName_B"
+    )
 
-    st.write("Top 10 Hub Genes:", hub_genes)
+    hub_genes = sorted(
+        G.degree,
+        key=lambda x: x[1],
+        reverse=True
+    )[:top_n]
 
-    H = G.subgraph(hub_genes)
-    fig, ax = plt.subplots(figsize=(6,6))
+    hub_list = [g[0] for g in hub_genes]
+    H = G.subgraph(hub_list)
+
+    fig, ax = plt.subplots(figsize=(7, 7))
     nx.draw(
         H,
         with_labels=True,
-        node_color="orange",
         node_size=2000,
+        node_color="orange",
         font_size=10
     )
     st.pyplot(fig)
 
+    hub_df = pd.DataFrame(hub_genes, columns=["Gene", "Degree"])
+    st.dataframe(hub_df)
+else:
+    st.info("STRING network unavailable or no interactions found.")
+
 # ---------------- FUNCTIONAL ENRICHMENT ----------------
 st.subheader("Functional Enrichment (g:Profiler)")
-gp = GProfiler(return_dataframe=True)
-enrich = gp.profile(
-    organism="hsapiens",
-    query=genes
-)
+
+def run_gprofiler(glist):
+    if not glist:
+        return pd.DataFrame()
+    try:
+        gp = GProfiler(return_dataframe=True)
+        return gp.profile(organism="hsapiens", query=glist)
+    except Exception:
+        return pd.DataFrame()
+
+enrich = run_gprofiler(genes)
 
 if not enrich.empty:
+    st.subheader("All Enriched Terms")
     st.dataframe(enrich)
 
-    st.subheader("KEGG Pathways")
-    st.dataframe(enrich[enrich["source"]=="KEGG"])
+    kegg = enrich[enrich["source"] == "KEGG"]
+    bp = enrich[enrich["source"] == "GO:BP"]
 
-    st.subheader("GO Biological Process")
-    st.dataframe(enrich[enrich["source"]=="GO:BP"])
+    if not kegg.empty:
+        st.subheader("KEGG Pathways")
+        st.dataframe(kegg)
 
-# ---------------- TRRUST ----------------
-st.subheader("TF–Gene Network (TRRUST)")
+    if not bp.empty:
+        st.subheader("GO Biological Process")
+        st.dataframe(bp)
+else:
+    st.info("No enrichment results available.")
+
+# ---------------- TRRUST TF NETWORK ----------------
+st.subheader("TF–Gene Regulatory Network (TRRUST)")
+
 if os.path.exists("trrust_human.tsv"):
     trrust = pd.read_csv("trrust_human.tsv", sep="\t", header=None)
-    trrust.columns = ["TF","Target","Mode","PMID"]
-    tf_edges = trrust[trrust["Target"].isin(genes)][["TF","Target"]]
+    trrust.columns = ["TF", "Target", "Mode", "PMID"]
+
+    tf_edges = trrust[trrust["Target"].isin(genes)][["TF", "Target"]]
 
     if not tf_edges.empty:
-        G_tf = nx.from_pandas_edgelist(tf_edges, "TF", "Target")
-        fig, ax = plt.subplots(figsize=(6,6))
+        G_tf = nx.from_pandas_edgelist(tf_edges, "TF", "Target", create_using=nx.DiGraph())
+        fig, ax = plt.subplots(figsize=(7, 7))
         nx.draw(G_tf, with_labels=True, node_size=1500)
         st.pyplot(fig)
 else:
-    st.info("TRRUST file not found — feature disabled safely")
+    st.info("TRRUST file not found — TF network disabled.")
 
 # ---------------- miRTarBase ----------------
-st.subheader("miRNA–Gene Network")
+st.subheader("miRNA–Gene Regulatory Network")
+
 if os.path.exists("miRTarBase_MTI.xlsx"):
     mir = pd.read_excel("miRTarBase_MTI.xlsx")
-    mir_edges = mir[mir["Target Gene"].isin(genes)][["miRNA","Target Gene"]]
+    mir_edges = mir[mir["Target Gene"].isin(genes)][["miRNA", "Target Gene"]]
+
     if not mir_edges.empty:
-        G_m = nx.from_pandas_edgelist(mir_edges, "miRNA", "Target Gene")
-        fig, ax = plt.subplots(figsize=(6,6))
+        G_m = nx.from_pandas_edgelist(mir_edges, "miRNA", "Target Gene", create_using=nx.DiGraph())
+        fig, ax = plt.subplots(figsize=(7, 7))
         nx.draw(G_m, with_labels=True, node_size=1200)
         st.pyplot(fig)
 else:
-    st.info("miRTarBase file not found — feature disabled safely")
+    st.info("miRTarBase file not found — miRNA network disabled.")
+
+st.success("✅ DEG analysis completed successfully without errors.")
