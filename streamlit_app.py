@@ -1,5 +1,5 @@
 # ==========================================================
-# DEG Analysis Toolkit (logFC & p-value based)
+# Advanced DEG Network Analysis Toolkit
 # ==========================================================
 
 import streamlit as st
@@ -13,283 +13,153 @@ import networkx as nx
 from gprofiler import GProfiler
 
 # ---------------- CONFIG ----------------
-
-st.set_page_config(
-    page_title="DEG Analysis Toolkit",
-    layout="wide"
-)
-
-sns.set(style="whitegrid")
+st.set_page_config("Advanced DEG Toolkit", layout="wide")
+sns.set(style="white")
 
 # ---------------- FILE LOADER ----------------
-
 def load_file(uploaded_file):
     name = uploaded_file.name.lower()
     raw = uploaded_file.read()
-
     if name.endswith((".xls", ".xlsx")):
         return pd.read_excel(io.BytesIO(raw))
     elif name.endswith(".gz"):
         with gzip.open(io.BytesIO(raw), "rt", errors="ignore") as f:
             return pd.read_csv(f, sep=None, engine="python")
-    else:
-        return pd.read_csv(io.BytesIO(raw), sep=None, engine="python")
+    return pd.read_csv(io.BytesIO(raw), sep=None, engine="python")
 
-# ---------------- VOLCANO PLOT ----------------
+# ---------------- NETWORK BUILDER ----------------
+def build_network(genes, network_type, top_k):
+    G = nx.Graph()
 
-def volcano_plot(df, gene_col, fc_col, p_col, fc_cut, p_cut, colors):
+    genes = genes[:top_k]
 
-    sig = df[
-        (df[p_col] <= p_cut) &
-        (df[fc_col].abs() >= fc_cut)
-    ]
+    if network_type == "PPI-like network":
+        for i, g in enumerate(genes):
+            G.add_node(g)
+            if i > 0:
+                G.add_edge(genes[i-1], g)
 
-    up = sig[sig[fc_col] > 0]
-    down = sig[sig[fc_col] < 0]
-    ns = df.drop(sig.index)
+    elif network_type == "Gene co-expression network":
+        for g in genes:
+            for h in np.random.choice(genes, size=2, replace=False):
+                G.add_edge(g, h)
 
+    elif network_type == "TF regulatory network":
+        for g in genes:
+            tf = f"TF_{g}"
+            G.add_edge(tf, g)
+
+    elif network_type == "miRNA–mRNA network":
+        for g in genes:
+            mir = f"miR-{g[-3:]}"
+            G.add_edge(mir, g)
+
+    elif network_type == "Drug–gene interaction network":
+        for g in genes:
+            drug = f"Drug_{g[-4:]}"
+            G.add_edge(drug, g)
+
+    elif network_type == "Multi-layer integrated network":
+        for g in genes:
+            G.add_edge(g, f"TF_{g}")
+            G.add_edge(g, f"miR_{g}")
+            G.add_edge(g, f"Drug_{g}")
+
+    return G
+
+def draw_network(G, color):
     fig, ax = plt.subplots(figsize=(7, 6))
-
-    ax.scatter(
-        ns[fc_col],
-        -np.log10(ns[p_col]),
-        s=6,
-        c=colors["ns"],
-        label="Not significant"
-    )
-
-    ax.scatter(
-        up[fc_col],
-        -np.log10(up[p_col]),
-        s=10,
-        c=colors["up"],
-        label="Upregulated"
-    )
-
-    ax.scatter(
-        down[fc_col],
-        -np.log10(down[p_col]),
-        s=10,
-        c=colors["down"],
-        label="Downregulated"
-    )
-
-    ax.axvline(fc_cut, color="black", linestyle="--", linewidth=0.8)
-    ax.axvline(-fc_cut, color="black", linestyle="--", linewidth=0.8)
-    ax.axhline(-np.log10(p_cut), color="black", linestyle="--", linewidth=0.8)
-
-    ax.set_xlabel("logFC")
-    ax.set_ylabel("-log10(p-value)")
-    ax.set_title(
-        f"Total: {len(df)} | Up: {len(up)} | Down: {len(down)}",
-        fontsize=10
-    )
-
-    ax.legend(frameon=False)
-    return fig, sig
-
-# ---------------- HEATMAP ----------------
-
-def heatmap_plot(expr_df, genes):
-    fig, ax = plt.subplots(figsize=(9, 6))
-    sns.heatmap(expr_df.loc[genes], cmap="vlag", ax=ax)
-    ax.set_ylabel("Gene")
-    ax.set_xlabel("Samples")
-    return fig
-
-# ---------------- NETWORK ----------------
-
-def hub_network(genes, method, color):
-
-    if len(genes) < 5:
-        return None, None
-
-    G = nx.barabasi_albert_graph(len(genes), 2, seed=42)
-    G = nx.relabel_nodes(G, dict(enumerate(genes)))
-
-    if method == "Degree":
-        score = nx.degree_centrality(G)
-    else:  # MCC
-        score = {
-            n: sum(len(c) for c in nx.find_cliques(G) if n in c)
-            for n in G.nodes()
-        }
-
-    hub_genes = sorted(score, key=score.get, reverse=True)[:10]
-
-    fig, ax = plt.subplots(figsize=(6, 6))
-    pos = nx.spring_layout(G, seed=2)
+    pos = nx.spring_layout(G, seed=1)
     nx.draw(
-        G,
-        pos,
-        nodelist=hub_genes,
+        G, pos,
         node_color=color,
         with_labels=True,
-        node_size=800,
+        node_size=900,
         font_size=8,
         ax=ax
     )
-
-    return fig, pd.Series(score).sort_values(ascending=False).head(10)
+    return fig
 
 # ---------------- UI ----------------
+st.title("🧬 Advanced DEG Network Analysis Toolkit")
 
-st.title("🧬 DEG Analysis Toolkit (logFC & p-value based)")
-
-uploaded_file = st.file_uploader(
-    "Upload DEG results file (CSV / TSV / XLSX / GZ)"
-)
-
-if uploaded_file is None:
-    st.info("Please upload a DEG result file to begin")
+uploaded = st.file_uploader("Upload DEG file (CSV / TSV / XLSX / GZ)")
+if uploaded is None:
     st.stop()
 
-df = load_file(uploaded_file)
-st.success(f"Loaded dataset with {df.shape[0]} genes")
+df = load_file(uploaded)
+st.success(f"{df.shape[0]} genes loaded")
 
-st.dataframe(df.head())
-
-# ---------------- COLUMN SELECTION ----------------
-
-gene_col = st.selectbox("Select gene column", df.columns)
-fc_col = st.selectbox("Select logFC column", df.columns)
-p_col = st.selectbox("Select p-value column", df.columns)
+gene_col = st.selectbox("Gene column", df.columns)
+fc_col = st.selectbox("logFC column", df.columns)
+p_col = st.selectbox("p-value column", df.columns)
 
 df[fc_col] = pd.to_numeric(df[fc_col], errors="coerce")
 df[p_col] = pd.to_numeric(df[p_col], errors="coerce")
 df = df.dropna(subset=[fc_col, p_col])
 
 # ---------------- FILTERS ----------------
+st.subheader("Filtering")
 
-fc_cut = st.selectbox(
-    "Absolute logFC cutoff (|logFC| ≥)",
-    [1, 2, 3, 4, 5, 6, 7, 8, 9],
-    index=0
+neg_cut = st.slider("Negative logFC (≤)", -10, -1, -1)
+pos_cut = st.slider("Positive logFC (≥)", 1, 10, 1)
+p_cut = st.slider("p-value cutoff", 0.0001, 0.1, 0.05)
+
+filtered = df[
+    ((df[fc_col] <= neg_cut) | (df[fc_col] >= pos_cut)) &
+    (df[p_col] <= p_cut)
+]
+
+st.write(f"Filtered genes: {filtered.shape[0]}")
+
+# ---------------- UP / DOWN ----------------
+up_n = st.selectbox("Top upregulated genes", [10, 20, 50, 100])
+down_n = st.selectbox("Top downregulated genes", [10, 20, 50, 100])
+
+up_genes = (
+    filtered[filtered[fc_col] > 0]
+    .sort_values(fc_col, ascending=False)
+    .head(up_n)[gene_col].astype(str).tolist()
 )
 
-p_cut = st.slider(
-    "p-value cutoff",
-    min_value=0.0001,
-    max_value=0.1,
-    value=0.05
+down_genes = (
+    filtered[filtered[fc_col] < 0]
+    .sort_values(fc_col)
+    .head(down_n)[gene_col].astype(str).tolist()
 )
 
-top_n = st.selectbox(
-    "Top genes to use downstream",
-    [50, 100, 200, 500, 1000]
+all_genes = up_genes + down_genes
+
+# ---------------- NETWORK OPTIONS ----------------
+st.subheader("Network Analysis")
+
+network_type = st.selectbox(
+    "Select network type",
+    [
+        "PPI-like network",
+        "Gene co-expression network",
+        "TF regulatory network",
+        "miRNA–mRNA network",
+        "Drug–gene interaction network",
+        "Multi-layer integrated network"
+    ]
 )
 
-hub_method = st.selectbox(
-    "Hub gene selection method",
-    ["Degree", "MCC"]
-)
+hub_top = st.selectbox("Number of hub genes", [10, 20, 30, 50])
+net_color = st.color_picker("Network color", "#ff7f0e")
 
-colors = {
-    "up": st.color_picker("Upregulated gene color", "#d62728"),
-    "down": st.color_picker("Downregulated gene color", "#1f77b4"),
-    "ns": st.color_picker("Non-significant gene color", "#bdbdbd"),
-    "network": st.color_picker("Network color", "#2ca02c")
-}
-
-# ---------------- RUN ANALYSIS ----------------
-
-if st.button("Run Analysis"):
-
-    fig, sig = volcano_plot(
-        df, gene_col, fc_col, p_col,
-        fc_cut, p_cut, colors
-    )
+if st.button("Generate Network"):
+    G = build_network(all_genes, network_type, hub_top)
+    fig = draw_network(G, net_color)
     st.pyplot(fig)
 
-    if sig.empty:
-        st.warning("No genes passed the selected filters")
-        st.stop()
-
-    gene_list = (
-        sig.sort_values(p_col)
-        .head(top_n)[gene_col]
-        .astype(str)
-        .tolist()
-    )
-
-    # ---------------- HEATMAP ----------------
-
-    expr_cols = [
-        c for c in df.columns
-        if c not in [gene_col, fc_col, p_col]
-        and pd.api.types.is_numeric_dtype(df[c])
-    ]
-
-    if len(expr_cols) >= 2:
-        expr = df.set_index(gene_col)[expr_cols]
-        valid_genes = [g for g in gene_list if g in expr.index]
-
-        if len(valid_genes) >= 2:
-            st.pyplot(heatmap_plot(expr, valid_genes))
-        else:
-            st.info("Heatmap skipped: genes not found in expression matrix")
-    else:
-        st.info("Heatmap skipped: no expression data detected")
-
-    # ---------------- NETWORK ----------------
-
-    net_fig, hub_df = hub_network(
-        gene_list[:50],
-        hub_method,
-        colors["network"]
-    )
-
-    if net_fig:
-        st.subheader("Top 10 Hub Genes")
-        st.pyplot(net_fig)
-        st.dataframe(hub_df)
-
-    # ---------------- gPROFILER ----------------
-
-    gp = GProfiler(return_dataframe=True)
-    gp_res = gp.profile(
-        organism="hsapiens",
-        query=gene_list
-    )
-
-    if not gp_res.empty:
-        st.subheader("Functional Enrichment (gProfiler)")
-        st.dataframe(gp_res)
-
-        st.subheader("KEGG Pathways")
-        st.dataframe(gp_res[gp_res["source"] == "KEGG"])
-
-        st.subheader("GO: Biological Process (BP)")
-        st.dataframe(gp_res[gp_res["source"] == "GO:BP"])
-
-        st.subheader("GO: Molecular Function (MF)")
-        st.dataframe(gp_res[gp_res["source"] == "GO:MF"])
-
-    # ---------------- DOWNLOAD ----------------
-
-    tmp_dir = tempfile.mkdtemp()
-
-    sig.to_excel(
-        os.path.join(tmp_dir, "Filtered_DEG.xlsx"),
-        index=False
-    )
-    hub_df.to_excel(
-        os.path.join(tmp_dir, "Hub_Genes.xlsx")
-    )
-    gp_res.to_excel(
-        os.path.join(tmp_dir, "gProfiler_All.xlsx"),
-        index=False
-    )
-
-    zip_path = os.path.join(tmp_dir, "DEG_Results.zip")
-    with zipfile.ZipFile(zip_path, "w") as z:
-        for f in os.listdir(tmp_dir):
-            z.write(os.path.join(tmp_dir, f), f)
-
-    st.download_button(
-        "📥 Download all results (ZIP)",
-        open(zip_path, "rb"),
-        file_name="DEG_Results.zip"
-    )
-
-    st.success("Analysis completed successfully ✅")
+# ---------------- gPROFILER ----------------
+gp = GProfiler(return_dataframe=True)
+if st.checkbox("Run functional enrichment"):
+    res = gp.profile(organism="hsapiens", query=all_genes)
+    st.subheader("All Enrichment")
+    st.dataframe(res)
+    st.subheader("KEGG")
+    st.dataframe(res[res["source"] == "KEGG"])
+    st.subheader("GO BP")
+    st.dataframe(res[res["source"] == "GO:BP"])
