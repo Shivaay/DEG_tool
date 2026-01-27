@@ -61,8 +61,8 @@ df = df.dropna(subset=[gene_col, logfc_col, pval_col])
 
 # ---------------- FILTERING ----------------
 st.sidebar.header("Filtering")
-neg_fc = st.sidebar.slider("Negative logFC (≤)", -10.0, -0.5, -1.0)
-pos_fc = st.sidebar.slider("Positive logFC (≥)", 0.5, 10.0, 1.0)
+neg_fc = st.sidebar.slider("Negative logFC (≤)", -10, -1)
+pos_fc = st.sidebar.slider("Positive logFC (≥)", 10.0, 1.0)
 p_cut = st.sidebar.slider("p-value cutoff", 0.0001, 0.1, 0.05)
 
 df["Regulation"] = "Neutral"
