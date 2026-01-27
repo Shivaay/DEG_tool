@@ -1,23 +1,162 @@
 # ==========================================================
-# ADVANCED PROFESSIONAL EXTENSION (NON-DESTRUCTIVE)
+# PhoenixBioInfoSys DEG Analysis Platform
+# BASE + PROFESSIONAL EXTENSIONS (MERGED)
 # ==========================================================
 
-import mygene
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import networkx as nx
+import requests
+import io
+import json
+from datetime import datetime
+from gprofiler import GProfiler
 from textwrap import fill
 
-st.markdown("---")
-st.header("📊 Publication-Ready Outputs & AI Interpretation")
+# ---------- SAFE OPTIONAL IMPORT ----------
+try:
+    import mygene
+    MYGENE_AVAILABLE = True
+except ImportError:
+    MYGENE_AVAILABLE = False
 
-# ----------------------------------------------------------
-# 1. GENE ID MAPPING (AUTOMATIC)
-# ----------------------------------------------------------
-st.subheader("🔁 Gene ID Resolution")
+# ---------------- STREAMLIT CONFIG ----------------
+st.set_page_config(page_title="PhoenixBioInfoSys DEG Tool", layout="wide")
+st.title("🧬 PhoenixBioInfoSys — DEG Analysis Platform")
 
-mg = mygene.MyGeneInfo()
+# ==================================================
+# BASE FILE FUNCTIONALITY (UNCHANGED LOGIC)
+# ==================================================
+
+uploaded = st.file_uploader(
+    "Upload DEG table (CSV / TSV / XLSX)",
+    type=["csv", "tsv", "xlsx"]
+)
+
+if uploaded is None:
+    st.stop()
 
 @st.cache_data
-def map_gene_ids(glist):
-    try:
+def load_data(file):
+    if file.name.endswith(".csv"):
+        return pd.read_csv(file)
+    if file.name.endswith(".tsv"):
+        return pd.read_csv(file, sep="\t")
+    return pd.read_excel(file)
+
+df = load_data(uploaded)
+st.success(f"Dataset loaded: {df.shape[0]} genes")
+
+# ---------------- COLUMN MAPPING ----------------
+st.sidebar.header("Column Mapping")
+gene_col = st.sidebar.selectbox("Gene column", df.columns)
+logfc_col = st.sidebar.selectbox("logFC column", df.columns)
+pval_col = st.sidebar.selectbox("p-value column", df.columns)
+
+df[logfc_col] = pd.to_numeric(df[logfc_col], errors="coerce")
+df[pval_col] = pd.to_numeric(df[pval_col], errors="coerce")
+df = df.dropna(subset=[gene_col, logfc_col, pval_col])
+
+# ---------------- FILTERING ----------------
+st.sidebar.header("Filtering")
+neg_fc = st.sidebar.slider("Negative logFC (≤)", -10.0, -0.5, -1.0)
+pos_fc = st.sidebar.slider("Positive logFC (≥)", 0.5, 10.0, 1.0)
+p_cut = st.sidebar.slider("p-value cutoff", 0.0001, 0.1, 0.05)
+
+df["Regulation"] = "Neutral"
+df.loc[(df[logfc_col] >= pos_fc) & (df[pval_col] <= p_cut), "Regulation"] = "Up"
+df.loc[(df[logfc_col] <= neg_fc) & (df[pval_col] <= p_cut), "Regulation"] = "Down"
+
+deg = df[df["Regulation"] != "Neutral"]
+genes = deg[gene_col].astype(str).tolist()
+up_genes = deg[deg["Regulation"] == "Up"][gene_col].astype(str).tolist()
+down_genes = deg[deg["Regulation"] == "Down"][gene_col].astype(str).tolist()
+
+# ==================================================
+# BASE VISUALIZATION
+# ==================================================
+st.header("📊 Volcano Plot")
+
+fig, ax = plt.subplots(figsize=(8, 6))
+ax.scatter(df[logfc_col], -np.log10(df[pval_col]), c="lightgrey", s=10)
+ax.scatter(deg[deg["Regulation"] == "Up"][logfc_col],
+           -np.log10(deg[deg["Regulation"] == "Up"][pval_col]),
+           c="red", s=20, label="Up")
+ax.scatter(deg[deg["Regulation"] == "Down"][logfc_col],
+           -np.log10(deg[deg["Regulation"] == "Down"][pval_col]),
+           c="blue", s=20, label="Down")
+ax.legend()
+st.pyplot(fig)
+
+# ==================================================
+# ENRICHMENT ANALYSIS (FULL iDEP-LIKE)
+# ==================================================
+st.header("🧠 Functional Enrichment Analysis")
+
+gp = GProfiler(return_dataframe=True)
+
+@st.cache_data
+def run_enrichment(glist):
+    if not glist:
+        return pd.DataFrame()
+    return gp.profile(organism="hsapiens", query=glist)
+
+enrich_all = run_enrichment(genes)
+enrich_up = run_enrichment(up_genes)
+enrich_down = run_enrichment(down_genes)
+
+def show_enrichment(df, title):
+    st.subheader(title)
+    for src in ["GO:BP", "GO:MF", "GO:CC", "KEGG", "REAC"]:
+        subset = df[df["source"] == src]
+        if not subset.empty:
+            st.markdown(f"**{src}**")
+            st.dataframe(subset[["name", "p_value", "intersection_size"]].head(15))
+
+show_enrichment(enrich_all, "All DEGs")
+show_enrichment(enrich_up, "Upregulated Genes")
+show_enrichment(enrich_down, "Downregulated Genes")
+
+# ==================================================
+# PPI & HUB GENES
+# ==================================================
+st.header("🔗 Protein–Protein Interaction (STRING)")
+
+@st.cache_data
+def fetch_string_ppi(glist):
+    if not glist:
+        return pd.DataFrame()
+    url = "https://string-db.org/api/tsv/network"
+    params = {
+        "identifiers": "%0d".join(glist[:200]),
+        "species": 9606,
+        "required_score": 700
+    }
+    r = requests.post(url, data=params, timeout=30)
+    if r.status_code != 200:
+        return pd.DataFrame()
+    return pd.read_csv(io.StringIO(r.text), sep="\t")
+
+ppi = fetch_string_ppi(genes)
+hub_genes = []
+
+if not ppi.empty:
+    G = nx.from_pandas_edgelist(ppi, "preferredName_A", "preferredName_B")
+    hub_genes = [x[0] for x in sorted(G.degree, key=lambda x: x[1], reverse=True)[:10]]
+    st.write("**Top hub genes:**", ", ".join(hub_genes))
+
+# ==================================================
+# GENE ID MAPPING (OPTIONAL, SAFE)
+# ==================================================
+st.header("🔁 Gene ID Mapping")
+
+if MYGENE_AVAILABLE:
+    mg = mygene.MyGeneInfo()
+
+    @st.cache_data
+    def map_gene_ids(glist):
         res = mg.querymany(
             glist,
             scopes=["symbol", "ensembl.gene", "entrezgene"],
@@ -25,125 +164,79 @@ def map_gene_ids(glist):
             species="human"
         )
         return pd.DataFrame(res)
-    except Exception:
-        return pd.DataFrame()
 
-gene_map = map_gene_ids(genes)
-
-with st.expander("Resolved Gene Identifiers"):
-    if not gene_map.empty:
-        st.dataframe(gene_map[["query", "symbol", "entrezgene"]])
-    else:
-        st.warning("Gene ID mapping could not be resolved.")
-
-# ----------------------------------------------------------
-# 2. REACTOME ENRICHMENT (iDEP PARITY)
-# ----------------------------------------------------------
-st.subheader("🧬 Reactome Pathway Enrichment")
-
-reactome = enrich[enrich["source"] == "REAC"]
-if reactome.empty:
-    st.info("No significant Reactome pathways detected.")
+    gene_map = map_gene_ids(genes)
+    st.dataframe(gene_map[["query", "symbol", "entrezgene"]])
 else:
-    st.dataframe(reactome[["name", "p_value", "intersection_size"]].head(15))
+    st.warning("Gene ID mapping unavailable (mygene not installed).")
 
-# ----------------------------------------------------------
-# 3. 300 DPI FIGURE EXPORTS
-# ----------------------------------------------------------
-st.subheader("🖼️ Manuscript-Ready Figures (300 DPI)")
+# ==================================================
+# AI-STYLE MANUSCRIPT SUMMARY (CONSTRAINED)
+# ==================================================
+st.header("📝 AI-Assisted Manuscript Summary")
 
-if st.button("Export All Figures (300 DPI)"):
-    fig.savefig("volcano_plot_300dpi.png", dpi=300, bbox_inches="tight")
-    st.success("Figures exported at 300 DPI for publication.")
-
-st.markdown(
-    "_Figures are suitable for journals such as Nature, Cell, and PLOS._"
-)
-
-# ----------------------------------------------------------
-# 4. AI-ASSISTED SCIENTIFIC SUMMARY (CONSTRAINED)
-# ----------------------------------------------------------
-st.subheader("🧠 AI-Generated Manuscript Summary")
-
-def ai_scientific_summary():
-    up_terms = up_enrich[up_enrich["source"] == "GO:BP"]["name"].head(3).tolist()
-    down_terms = down_enrich[down_enrich["source"] == "GO:BP"]["name"].head(3).tolist()
-
-    hub_text = (
-        f"Key hub genes including {', '.join(hub_list[:5])} "
-        "exhibited high network connectivity, suggesting regulatory importance."
-        if hub_list else
-        "No dominant hub genes were identified."
-    )
+def ai_summary():
+    up_terms = enrich_up[enrich_up["source"] == "GO:BP"]["name"].head(3).tolist()
+    down_terms = enrich_down[enrich_down["source"] == "GO:BP"]["name"].head(3).tolist()
 
     summary = f"""
-Differential expression analysis identified {len(deg)} significantly
-regulated genes. Among these, {len(up_genes)} genes were upregulated,
-while {len(down_genes)} genes were downregulated.
+Differential expression analysis identified {len(deg)} significant genes,
+including {len(up_genes)} upregulated and {len(down_genes)} downregulated genes.
 
-Upregulated genes were primarily enriched in biological processes related
-to {', '.join(up_terms) if up_terms else 'adaptive cellular responses'},
-suggesting activation of condition-specific signaling and regulatory pathways.
+Upregulated genes were enriched in biological processes related to
+{', '.join(up_terms) if up_terms else 'adaptive cellular responses'},
+suggesting activation of condition-associated pathways.
 
-Conversely, downregulated genes were associated with processes such as
-{', '.join(down_terms) if down_terms else 'metabolic and structural pathways'},
-indicating suppression of these biological functions.
+Downregulated genes were associated with
+{', '.join(down_terms) if down_terms else 'suppressed metabolic and structural pathways'},
+indicating functional repression.
 
-Protein–protein interaction analysis revealed a structured interaction
-network. {hub_text}
+Protein–protein interaction analysis highlighted hub genes such as
+{', '.join(hub_genes[:5]) if hub_genes else 'no dominant hubs'},
+suggesting their potential regulatory importance.
 
 Overall, these results indicate coordinated transcriptional reprogramming
-involving pathway-level activation and repression, consistent with a
-biologically meaningful molecular response.
+consistent with a biologically meaningful molecular response.
 """
     return fill(summary, 110)
 
-ai_summary = ai_scientific_summary()
+st.text_area("Manuscript-Ready Summary", ai_summary(), height=350)
 
-st.text_area(
-    "Manuscript-Ready AI Summary (Results + Interpretation)",
-    ai_summary,
-    height=350
-)
-
-# ----------------------------------------------------------
-# 5. METHODS SECTION (AUTO-GENERATED)
-# ----------------------------------------------------------
-st.subheader("🧪 Auto-Generated Methods Section")
+# ==================================================
+# METHODS + REPRODUCIBILITY
+# ==================================================
+st.header("🧪 Methods & Reproducibility")
 
 methods = f"""
-Differentially expressed genes were analyzed using user-provided expression
-statistics. Genes were filtered based on log fold-change thresholds
-({neg_fc}, {pos_fc}) and statistical significance (p ≤ {p_cut}).
-Functional enrichment analysis was performed using gProfiler, querying
-Gene Ontology (Biological Process, Molecular Function, Cellular Component),
-KEGG, and Reactome databases. Protein–protein interaction networks were
-retrieved from the STRING database (confidence score ≥ 0.7).
+Genes were filtered using log fold-change thresholds
+({neg_fc}, {pos_fc}) and p-value cutoff (≤ {p_cut}).
+Functional enrichment was performed using gProfiler
+(GO, KEGG, Reactome). PPI data were obtained from STRING.
 """
 
-st.text_area("Methods (Copy for Manuscript)", fill(methods, 110), height=200)
+st.text_area("Methods Section", fill(methods, 110), height=200)
 
-# ----------------------------------------------------------
-# 6. INTERPRETATION HELP (EDUCATIONAL + INDUSTRY)
-# ----------------------------------------------------------
-st.subheader("📖 Interpretation Guide")
+metadata = {
+    "timestamp": datetime.utcnow().isoformat(),
+    "DEGs": len(deg),
+    "up": len(up_genes),
+    "down": len(down_genes),
+    "hub_genes": hub_genes
+}
 
-with st.expander("How to interpret Up vs Down regulation"):
-    st.write(
-        "Upregulated genes indicate activated biological processes, while "
-        "downregulated genes reflect suppressed pathways under the studied condition."
-    )
+st.download_button(
+    "Download Run Metadata (JSON)",
+    json.dumps(metadata, indent=2),
+    file_name="run_metadata.json"
+)
 
-with st.expander("How to interpret Hub Genes"):
-    st.write(
-        "Hub genes show high connectivity in interaction networks and often "
-        "represent key regulators or bottlenecks in biological systems."
-    )
+# ==================================================
+# 300 DPI EXPORT
+# ==================================================
+st.header("🖼️ Publication-Ready Figures")
 
-with st.expander("Reproducibility & Limitations"):
-    st.write(
-        "This analysis assumes prior normalization and appropriate statistical modeling. "
-        "Batch effects and experimental design should be considered during preprocessing."
-    )
+if st.button("Export Volcano Plot (300 DPI)"):
+    fig.savefig("volcano_300dpi.png", dpi=300, bbox_inches="tight")
+    st.success("Saved volcano_300dpi.png")
 
-st.success("✅ Advanced AI-assisted interpretation layer enabled.")
+st.success("✅ Analysis complete. Tool is supervisor-ready.")
