@@ -1,0 +1,277 @@
+# ==========================================================
+# PhoenixBioInfoSys DEG Platform — Final Professional Version
+# ==========================================================
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import networkx as nx
+import requests
+import io
+import json
+from datetime import datetime
+from textwrap import fill
+from gprofiler import GProfiler
+
+# ---------- OPTIONAL IMPORTS ----------
+try:
+    import mygene
+    MYGENE_AVAILABLE = True
+except ImportError:
+    MYGENE_AVAILABLE = False
+
+try:
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
+    from reportlab.lib.styles import getSampleStyleSheet
+    REPORT_AVAILABLE = True
+except ImportError:
+    REPORT_AVAILABLE = False
+
+# ---------------- STREAMLIT CONFIG ----------------
+st.set_page_config(page_title="PhoenixBioInfoSys DEG", layout="wide")
+st.title("🧬 PhoenixBioInfoSys — DEG Interpretation Platform")
+
+# ==================================================
+# 1️⃣ DATA INPUT (1 GB)
+# ==================================================
+uploaded = st.file_uploader(
+    "Upload DEG table (CSV / TSV / XLSX, ≤ 1 GB)",
+    type=["csv", "tsv", "xlsx"]
+)
+if uploaded is None:
+    st.stop()
+
+@st.cache_data
+def load_data(f):
+    if f.name.endswith(".csv"):
+        return pd.read_csv(f)
+    if f.name.endswith(".tsv"):
+        return pd.read_csv(f, sep="\t")
+    return pd.read_excel(f)
+
+df = load_data(uploaded)
+st.success(f"Loaded {df.shape[0]} genes")
+
+# ==================================================
+# 2️⃣ COLUMN MAPPING & FILTERING
+# ==================================================
+st.sidebar.header("Column Mapping")
+gene_col = st.sidebar.selectbox("Gene column", df.columns)
+logfc_col = st.sidebar.selectbox("logFC column", df.columns)
+pval_col = st.sidebar.selectbox("p-value column", df.columns)
+
+df[logfc_col] = pd.to_numeric(df[logfc_col], errors="coerce")
+df[pval_col] = pd.to_numeric(df[pval_col], errors="coerce")
+df = df.dropna(subset=[gene_col, logfc_col, pval_col])
+
+st.sidebar.header("Thresholds")
+
+neg_fc = st.sidebar.select_slider(
+    "Negative logFC (≤)",
+    options=[-4, -3, -2, -1],
+    value=-1
+)
+
+pos_fc = st.sidebar.select_slider(
+    "Positive logFC (≥)",
+    options=[1, 2, 3, 4],
+    value=1
+)
+
+p_cut = st.sidebar.slider("p-value cutoff", 0.0001, 0.1, 0.05)
+
+df["Regulation"] = "Neutral"
+df.loc[(df[logfc_col] >= pos_fc) & (df[pval_col] <= p_cut), "Regulation"] = "Up"
+df.loc[(df[logfc_col] <= neg_fc) & (df[pval_col] <= p_cut), "Regulation"] = "Down"
+
+deg = df[df["Regulation"] != "Neutral"]
+up_genes = deg[deg["Regulation"] == "Up"][gene_col].astype(str).tolist()
+down_genes = deg[deg["Regulation"] == "Down"][gene_col].astype(str).tolist()
+genes = deg[gene_col].astype(str).tolist()
+
+# ==================================================
+# 3️⃣ VOLCANO PLOT (USER COLORS + 300 DPI)
+# ==================================================
+st.header("📊 Volcano Plot")
+
+col_up = st.color_picker("Upregulated color", "#d62728")
+col_down = st.color_picker("Downregulated color", "#1f77b4")
+col_bg = st.color_picker("Non-significant color", "#c7c7c7")
+
+fig, ax = plt.subplots(figsize=(8, 6))
+ax.scatter(df[logfc_col], -np.log10(df[pval_col]), c=col_bg, s=10)
+ax.scatter(deg[deg["Regulation"]=="Up"][logfc_col],
+           -np.log10(deg[deg["Regulation"]=="Up"][pval_col]),
+           c=col_up, label="Up")
+ax.scatter(deg[deg["Regulation"]=="Down"][logfc_col],
+           -np.log10(deg[deg["Regulation"]=="Down"][pval_col]),
+           c=col_down, label="Down")
+ax.legend()
+ax.set_xlabel("log2 Fold Change")
+ax.set_ylabel("-log10(p-value)")
+st.pyplot(fig)
+
+fig.savefig("volcano_300dpi.png", dpi=300, bbox_inches="tight")
+
+# ==================================================
+# 4️⃣ FUNCTIONAL ENRICHMENT (GO + KEGG)
+# ==================================================
+st.header("🧠 Functional Enrichment")
+
+gp = GProfiler(return_dataframe=True)
+
+@st.cache_data
+def enrich(glist):
+    if not glist:
+        return pd.DataFrame()
+    return gp.profile(organism="hsapiens", query=glist)
+
+en_all = enrich(genes)
+en_up = enrich(up_genes)
+en_down = enrich(down_genes)
+
+def show_tables(df, title):
+    st.subheader(title)
+    for src in ["GO:BP", "GO:MF", "GO:CC", "KEGG"]:
+        subset = df[df["source"] == src]
+        if not subset.empty:
+            st.markdown(f"**{src}**")
+            st.dataframe(subset[["name", "p_value", "intersection_size"]].head(15))
+
+show_tables(en_all, "All DEGs")
+show_tables(en_up, "Upregulated Genes")
+show_tables(en_down, "Downregulated Genes")
+
+# ==================================================
+# 5️⃣ PPI NETWORK (VISIBLE + COLOR CHOICE)
+# ==================================================
+st.header("🔗 PPI Network (STRING)")
+
+@st.cache_data
+def fetch_ppi(glist):
+    if not glist:
+        return pd.DataFrame()
+    r = requests.post(
+        "https://string-db.org/api/tsv/network",
+        data={"identifiers":"%0d".join(glist[:200]),
+              "species":9606,
+              "required_score":700}
+    )
+    if r.status_code != 200:
+        return pd.DataFrame()
+    return pd.read_csv(io.StringIO(r.text), sep="\t")
+
+ppi = fetch_ppi(genes)
+hub_genes = []
+
+if not ppi.empty:
+    G = nx.from_pandas_edgelist(ppi,"preferredName_A","preferredName_B")
+    hub_genes = [x[0] for x in sorted(G.degree,key=lambda x:x[1],reverse=True)[:10]]
+
+    node_col = st.color_picker("PPI node color", "#8da0cb")
+    edge_col = st.color_picker("PPI edge color", "#636363")
+
+    subG = G.subgraph(hub_genes)
+    pos = nx.spring_layout(subG, seed=42)
+
+    fig_ppi, ax_ppi = plt.subplots(figsize=(8,6))
+    nx.draw_networkx(
+        subG, pos,
+        node_color=node_col,
+        edge_color=edge_col,
+        node_size=900,
+        font_size=8,
+        ax=ax_ppi
+    )
+    ax_ppi.axis("off")
+    st.pyplot(fig_ppi)
+
+    fig_ppi.savefig("ppi_network_300dpi.png", dpi=300, bbox_inches="tight")
+
+else:
+    st.warning("No high-confidence PPI interactions detected.")
+
+# ==================================================
+# 6️⃣ HEATMAP
+# ==================================================
+st.header("🔥 Heatmap (Hub Genes)")
+
+expr_cols = [c for c in df.columns if c not in
+             [gene_col,logfc_col,pval_col,"Regulation"]
+             and pd.api.types.is_numeric_dtype(df[c])]
+
+if hub_genes and expr_cols:
+    hm = df[df[gene_col].isin(hub_genes)].set_index(gene_col)[expr_cols]
+    fig_hm, ax_hm = plt.subplots(figsize=(8,6))
+    sns.heatmap(hm, cmap="RdBu_r", center=0, ax=ax_hm)
+    st.pyplot(fig_hm)
+
+# ==================================================
+# 7️⃣ AI-STYLE SCIENTIFIC SUMMARY
+# ==================================================
+st.header("📝 Automated Scientific Interpretation")
+
+def generate_summary():
+    up_terms = en_up[en_up["source"]=="GO:BP"]["name"].head(3).tolist()
+    down_terms = en_down[en_down["source"]=="GO:BP"]["name"].head(3).tolist()
+
+    return fill(f"""
+Differential expression analysis identified {len(deg)} significant genes
+({len(up_genes)} upregulated and {len(down_genes)} downregulated).
+
+Upregulated genes were enriched in {", ".join(up_terms) if up_terms else "adaptive biological processes"},
+suggesting pathway activation.
+
+Downregulated genes were associated with {", ".join(down_terms) if down_terms else "suppressed biological functions"},
+indicating pathway repression.
+
+Protein–protein interaction analysis highlighted hub genes
+({", ".join(hub_genes[:5]) if hub_genes else "none dominant"}),
+suggesting key regulatory roles.
+
+Overall, these findings indicate coordinated transcriptional reprogramming
+consistent with a biologically meaningful molecular response.
+""", 110)
+
+summary_text = generate_summary()
+st.text_area("Manuscript-Ready Summary", summary_text, height=320)
+
+# ==================================================
+# 8️⃣ AUTOMATED PDF REPORT
+# ==================================================
+st.header("📄 Download PDF Report")
+
+if REPORT_AVAILABLE and st.button("Generate PDF Report"):
+    doc = SimpleDocTemplate("DEG_Report.pdf")
+    styles = getSampleStyleSheet()
+    content = []
+
+    content.append(Paragraph("Differential Gene Expression Report", styles["Title"]))
+    content.append(Spacer(1,12))
+    content.append(Paragraph(summary_text.replace("\n","<br/>"), styles["Normal"]))
+    content.append(Spacer(1,12))
+    content.append(Image("volcano_300dpi.png", width=400, height=300))
+    content.append(Spacer(1,12))
+    content.append(Image("ppi_network_300dpi.png", width=400, height=300))
+
+    doc.build(content)
+
+    with open("DEG_Report.pdf","rb") as f:
+        st.download_button("Download PDF", f, file_name="DEG_Report.pdf")
+
+# ==================================================
+# 9️⃣ REPRODUCIBILITY
+# ==================================================
+st.header("🔁 Reproducibility Metadata")
+
+meta = {
+    "timestamp": datetime.utcnow().isoformat(),
+    "DEGs": len(deg),
+    "Up": len(up_genes),
+    "Down": len(down_genes),
+    "Hub_genes": hub_genes
+}
+
+st.json(meta)
