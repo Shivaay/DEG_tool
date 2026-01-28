@@ -68,8 +68,8 @@ df[pval_col] = pd.to_numeric(df[pval_col], errors="coerce")
 df = df.dropna(subset=[gene_col, logfc_col, pval_col])
 
 st.sidebar.header("Filtering")
-neg_fc = st.sidebar.slider("Negative logFC (≤)", -10.0, -0.5, -1.0)
-pos_fc = st.sidebar.slider("Positive logFC (≥)", 0.5, 10.0, 1.0)
+neg_fc = st.sidebar.slider("Negative logFC (≤)", -10, -1)
+pos_fc = st.sidebar.slider("Positive logFC (≥)",10, 1)
 p_cut = st.sidebar.slider("p-value cutoff", 0.0001, 0.1, 0.05)
 
 df["Regulation"] = "Neutral"
@@ -152,6 +152,30 @@ if not ppi.empty:
     G = nx.from_pandas_edgelist(ppi,"preferredName_A","preferredName_B")
     hub_genes = [x[0] for x in sorted(G.degree,key=lambda x:x[1],reverse=True)[:10]]
     st.write("Top hub genes:", ", ".join(hub_genes))
+
+# ---- DRAW PPI NETWORK (FIX) ----
+if not ppi.empty and hub_genes:
+    st.subheader("🕸️ Protein–Protein Interaction Network (Hub Genes)")
+
+    subG = G.subgraph(hub_genes)
+    pos = nx.spring_layout(subG, seed=42)
+
+    fig_ppi, ax_ppi = plt.subplots(figsize=(8, 6))
+    nx.draw_networkx(
+        subG,
+        pos,
+        node_color="skyblue",
+        edge_color="gray",
+        node_size=900,
+        font_size=8,
+        ax=ax_ppi
+    )
+    ax_ppi.axis("off")
+    st.pyplot(fig_ppi)
+
+    # Save 300 DPI
+    fig_ppi.savefig("ppi_network_300dpi.png", dpi=300, bbox_inches="tight")
+
 
 # ==========================================================
 # 6️⃣ HEATMAP (BASE)
