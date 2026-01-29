@@ -52,8 +52,8 @@ df[pval_col] = pd.to_numeric(df[pval_col], errors="coerce")
 df = df.dropna(subset=[gene_col, logfc_col, pval_col])
 
 st.sidebar.header("Thresholds")
-neg_fc = st.sidebar.select_slider("Negative logFC (≤)", [-4, -3, -2, -1], -1)
-pos_fc = st.sidebar.select_slider("Positive logFC (≥)", [1, 2, 3, 4], 1)
+neg_fc = st.sidebar.select_slider("Negative logFC (≤)", [-10, -9, -8, -7, -6, -5, -4, -3, -2, -1], -1)
+pos_fc = st.sidebar.select_slider("Positive logFC (≥)", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 1)
 p_cut = st.sidebar.slider("p-value cutoff", 0.0001, 0.1, 0.05)
 
 df["Regulation"] = "Neutral"
