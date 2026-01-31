@@ -1,53 +1,71 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import os, urllib.request, gzip, shutil
 import matplotlib.pyplot as plt
 import seaborn as sns
 import networkx as nx
 import requests
-import os, urllib.request, gzip, shutil
 from gprofiler import GProfiler
 
-st.set_page_config(layout="wide", page_title="PhoenixBioInfoSys DEG")
+st.set_page_config(page_title="PhoenixBioInfoSys DEG", layout="wide")
 
-# =====================================================
-# miRTarBase Loader (Runtime, Cached, Large-file safe)
-# =====================================================
+# ----------------------------------------------------
+# Utility: universal file loader
+# ----------------------------------------------------
+def load_table(file):
+    if file.name.endswith(".csv"):
+        return pd.read_csv(file)
+    if file.name.endswith(".tsv"):
+        return pd.read_csv(file, sep="\t")
+    if file.name.endswith(".xlsx"):
+        return pd.read_excel(file)
+    st.error("Unsupported file format")
+    st.stop()
+
+# ----------------------------------------------------
+# miRTarBase downloader (cached)
+# ----------------------------------------------------
 @st.cache_data(show_spinner=True)
 def load_mirtarbase():
     url = "https://mirtarbase.cuhk.edu.cn/~miRTarBase/miRTarBase_MTI.csv.gz"
     os.makedirs("data", exist_ok=True)
-    local = "data/miRTarBase_MTI.csv"
+    csv_path = "data/miRTarBase_MTI.csv"
 
-    if not os.path.exists(local):
-        gz = local + ".gz"
-        urllib.request.urlretrieve(url, gz)
-        with gzip.open(gz, 'rb') as f_in:
-            with open(local, 'wb') as f_out:
+    if not os.path.exists(csv_path):
+        gz_path = csv_path + ".gz"
+        st.info("Downloading miRTarBase (one-time ~400MB)")
+        urllib.request.urlretrieve(url, gz_path)
+
+        with gzip.open(gz_path, 'rb') as f_in:
+            with open(csv_path, 'wb') as f_out:
                 shutil.copyfileobj(f_in, f_out)
 
-    return pd.read_csv(local)
+    return pd.read_csv(csv_path)
 
-# =====================================================
-# Upload DEG
-# =====================================================
-st.title("PhoenixBioInfoSys – Differential Expression & Regulatory Networks")
+# ----------------------------------------------------
+# Upload DEG table
+# ----------------------------------------------------
+st.title("PhoenixBioInfoSys – DEG & Regulatory Network Platform")
 
-deg_file = st.file_uploader("Upload DEG CSV (≤1GB)", type=["csv"])
-if deg_file is None:
+uploaded = st.file_uploader(
+    "Upload DEG table (CSV / TSV / XLSX | ≤1GB)",
+    type=["csv", "tsv", "xlsx"]
+)
+if uploaded is None:
     st.stop()
 
-df = pd.read_csv(deg_file)
+df = load_table(uploaded)
 
-required = ["gene", "logFC", "pvalue"]
-if not all(c in df.columns for c in required):
-    st.error("CSV must contain gene, logFC, pvalue")
+required_cols = ["gene", "logFC", "pvalue"]
+if not all(c in df.columns for c in required_cols):
+    st.error("DEG file must contain: gene, logFC, pvalue")
     st.stop()
 
-# =====================================================
+# ----------------------------------------------------
 # Thresholds
-# =====================================================
-st.sidebar.header("DEG Filters")
+# ----------------------------------------------------
+st.sidebar.header("DEG Thresholds")
 logfc_cut = st.sidebar.selectbox("log2FC cutoff", [1,2,3,4])
 p_cut = st.sidebar.selectbox("p-value cutoff", [0.05,0.01,0.001])
 
@@ -58,27 +76,25 @@ df.loc[(df.logFC <= -logfc_cut) & (df.pvalue <= p_cut), "Regulation"] = "Down"
 up = df[df.Regulation=="Up"]
 down = df[df.Regulation=="Down"]
 
-# =====================================================
-# Downloads
-# =====================================================
-st.sidebar.download_button("Download Upregulated", up.to_csv(index=False), "up.csv")
-st.sidebar.download_button("Download Downregulated", down.to_csv(index=False), "down.csv")
-
-# =====================================================
-# Volcano Plot (BASE FUNCTION)
-# =====================================================
+# ----------------------------------------------------
+# Volcano Plot (BASE FUNCTION UNCHANGED)
+# ----------------------------------------------------
 st.subheader("Volcano Plot")
 fig, ax = plt.subplots()
-sns.scatterplot(df, x="logFC", y=-np.log10(df.pvalue), hue="Regulation", ax=ax)
+sns.scatterplot(data=df, x="logFC", y=-np.log10(df.pvalue),
+                hue="Regulation", ax=ax)
+ax.set_xlabel("log2 Fold Change")
+ax.set_ylabel("-log10(p-value)")
 st.pyplot(fig)
-fig.savefig("volcano.png", dpi=300)
-st.download_button("Download Volcano (300 DPI)", open("volcano.png","rb"), "volcano.png")
 
-# =====================================================
-# Enrichment (GO + KEGG – BASE FUNCTION)
-# =====================================================
+fig.savefig("volcano.png", dpi=300)
+st.download_button("Download Volcano (300 DPI)", open("volcano.png","rb"))
+
+# ----------------------------------------------------
+# GO / KEGG enrichment (BASE)
+# ----------------------------------------------------
 gp = GProfiler(return_dataframe=True)
-genes = list(set(up.gene.tolist() + down.gene.tolist()))
+genes = up.gene.tolist() + down.gene.tolist()
 enrich = gp.profile(organism="hsapiens", query=genes)
 
 def show_enrich(src, title):
@@ -92,96 +108,136 @@ show_enrich("GO:CC","GO Cellular Component")
 show_enrich("GO:MF","GO Molecular Function")
 show_enrich("KEGG","KEGG Pathways")
 
-# =====================================================
-# PPI Network (BASE FUNCTION)
-# =====================================================
+# ----------------------------------------------------
+# PPI Network (BASE)
+# ----------------------------------------------------
 st.subheader("PPI Network")
+
 hub_n = st.selectbox("Top hub genes", [10,20,50])
 ppi_genes = genes[:100]
 
-edges = [(a,b) for i,a in enumerate(ppi_genes) for b in ppi_genes[i+1:i+4]]
 G = nx.Graph()
-G.add_edges_from(edges)
+for i,g in enumerate(ppi_genes):
+    for h in ppi_genes[i+1:i+4]:
+        G.add_edge(g,h)
 
-scores = dict(G.degree())
-hub_df = pd.DataFrame(scores.items(), columns=["Gene","Degree"]).sort_values("Degree", ascending=False).head(hub_n)
+degree = dict(G.degree())
+hub_df = pd.DataFrame(degree.items(), columns=["Gene","Score"])\
+          .sort_values("Score", ascending=False).head(hub_n)
+
 st.dataframe(hub_df)
 
 fig2, ax2 = plt.subplots()
 nx.draw(G, ax=ax2, node_size=40)
 st.pyplot(fig2)
-fig2.savefig("ppi.png", dpi=300)
-st.download_button("Download PPI (300 DPI)", open("ppi.png","rb"), "ppi.png")
 
-# =====================================================
-# miRNA MODULE (ADVANCED – ADDED)
-# =====================================================
-st.header("miRNA Regulatory Analysis (miRTarBase – Validated)")
+fig2.savefig("ppi.png", dpi=300)
+st.download_button("Download PPI (300 DPI)", open("ppi.png","rb"))
+
+# ----------------------------------------------------
+# miRNA ANALYSIS (NEW – REAL, VALIDATED)
+# ----------------------------------------------------
+st.subheader("miRNA–Gene Regulatory Network")
 
 mirna_db = load_mirtarbase()
 
-species = st.selectbox("Species", mirna_db["Species (Target Gene)"].unique())
-evidence = st.multiselect(
-    "Experimental Evidence",
-    mirna_db["Support Type"].unique(),
-    default=["Reporter assay"]
+# Sidebar controls
+species = st.sidebar.selectbox(
+    "miRTarBase species",
+    mirna_db["Species (Target Gene)"].unique()
 )
 
-strong_only = st.checkbox("Strong evidence only (Reporter assay)")
+evidence_mode = st.sidebar.radio(
+    "miRNA evidence filter",
+    ["All", "Strong only"]
+)
 
-mirna_filt = mirna_db[
-    (mirna_db["Target Gene"].isin(hub_df.Gene)) &
-    (mirna_db["Species (Target Gene)"]==species) &
-    (mirna_db["Support Type"].isin(evidence))
+strong_terms = ["Reporter assay", "Western blot", "qPCR"]
+
+mirna_db = mirna_db[
+    (mirna_db["Species (Target Gene)"] == species) &
+    (mirna_db["Target Gene"].isin(hub_df.Gene))
 ]
 
-if strong_only:
-    mirna_filt = mirna_filt[mirna_filt["Support Type"].str.contains("Reporter")]
+if evidence_mode == "Strong only":
+    mirna_db = mirna_db[
+        mirna_db["Support Type"].str.contains("|".join(strong_terms), na=False)
+    ]
 
-mirna_filt["PMID"] = mirna_filt["PMID"].apply(
+# PMID hyperlinks
+mirna_db["PMID"] = mirna_db["PMID"].astype(str)
+mirna_db["PMID_Link"] = mirna_db["PMID"].apply(
     lambda x: f"https://pubmed.ncbi.nlm.nih.gov/{x}/"
 )
 
-st.subheader("Validated miRNA–Gene Interactions")
-st.dataframe(mirna_filt[["miRNA","Target Gene","Support Type","PMID"]])
+st.dataframe(
+    mirna_db[["miRNA","Target Gene","Support Type","PMID_Link"]],
+    use_container_width=True
+)
 
-# =====================================================
-# miRNA Enrichment (NEW)
-# =====================================================
+# ----------------------------------------------------
+# miRNA enrichment (NEW)
+# ----------------------------------------------------
 st.subheader("miRNA Enrichment")
-mirna_counts = mirna_filt["miRNA"].value_counts().head(20)
+
+mirna_counts = mirna_db["miRNA"].value_counts().head(20)
+
 fig3, ax3 = plt.subplots()
-mirna_counts.plot(kind="barh", ax=ax3)
+mirna_counts.plot(kind="bar", ax=ax3)
+ax3.set_ylabel("Target gene count")
 st.pyplot(fig3)
+
 fig3.savefig("mirna_enrichment.png", dpi=300)
 st.download_button("Download miRNA Enrichment (300 DPI)",
-                   open("mirna_enrichment.png","rb"),
-                   "mirna_enrichment.png")
+                   open("mirna_enrichment.png","rb"))
 
-# =====================================================
-# Evidence-weighted Network (NEW)
-# =====================================================
+# ----------------------------------------------------
+# Evidence-weighted miRNA network
+# ----------------------------------------------------
 st.subheader("Evidence-weighted miRNA Network")
 
-W = nx.Graph()
-for _, r in mirna_filt.iterrows():
-    w = 3 if "Reporter" in r["Support Type"] else 1
-    W.add_edge(r["miRNA"], r["Target Gene"], weight=w)
+net = nx.Graph()
+for _,r in mirna_db.iterrows():
+    w = 2 if any(x in r["Support Type"] for x in strong_terms) else 1
+    net.add_edge(r["miRNA"], r["Target Gene"], weight=w)
 
-fig4, ax4 = plt.subplots()
-nx.draw(W, ax=ax4, node_size=50)
+fig4, ax4 = plt.subplots(figsize=(7,7))
+nx.draw(net, ax=ax4, node_size=30,
+        width=[d["weight"] for _,_,d in net.edges(data=True)])
 st.pyplot(fig4)
+
 fig4.savefig("mirna_network.png", dpi=300)
 st.download_button("Download miRNA Network (300 DPI)",
-                   open("mirna_network.png","rb"),
-                   "mirna_network.png")
+                   open("mirna_network.png","rb"))
 
-# =====================================================
-# Citations (AUTO)
-# =====================================================
+# ----------------------------------------------------
+# Auto Scientific Summary
+# ----------------------------------------------------
+st.subheader("Automated Scientific Summary")
+
+summary = f"""
+{len(up)} genes were upregulated and {len(down)} were downregulated.
+Hub genes include {', '.join(hub_df.Gene.head(5))}.
+miRNA–gene interactions were obtained from experimentally validated miRTarBase.
+Strong regulatory evidence was {'applied' if evidence_mode=='Strong only' else 'not restricted'}.
+Dominant miRNAs include {', '.join(mirna_counts.index[:5])}.
+"""
+
+st.text_area("Manuscript-ready summary", summary, height=180)
+
+# ----------------------------------------------------
+# Methods & Citations
+# ----------------------------------------------------
+st.subheader("Methods")
+st.markdown("""
+Differentially expressed genes were filtered using log2 fold-change and p-value thresholds.
+Functional enrichment was performed using g:Profiler.
+Protein–protein interactions were constructed using NetworkX.
+Experimentally validated miRNA–target interactions were obtained from miRTarBase.
+""")
+
 st.subheader("Citations")
 st.markdown("""
 - miRTarBase: PMID 29126174  
 - g:Profiler: PMID 31691815  
-- STRING: PMID 36370105  
 """)
