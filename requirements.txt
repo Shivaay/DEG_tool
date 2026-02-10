@@ -14,3 +14,4 @@ reportlab
 fpdf
 fpdf2
 scikit-learn
+pyvis
