@@ -360,18 +360,18 @@ if st.button("Generate PDF Report"):
 # ========= PHOENIX ADVANCED INTERACTIVE MODULE =============
 # ==========================================================
 
+import math
+import tempfile
+from pyvis.network import Network
 
+st.header("🧬 Advanced Interactive Network & Clinical Module")
 
 # ==========================================================
 # TRUE CYTOHUBBA MCC SCORING
 # ==========================================================
 
-st.header("🧮 cytoHubba MCC Hub Gene Analysis")
-
 def compute_true_mcc(G):
-
     mcc_scores = {node: 0 for node in G.nodes}
-
     cliques = list(nx.find_cliques(G))
 
     for clique in cliques:
@@ -383,20 +383,25 @@ def compute_true_mcc(G):
 
 
 # ==========================================================
-# HUB SELECTION + NETWORK LOGIC
+# HUB SELECTION CONTROLS
 # ==========================================================
 
-st.subheader("🧬 PPI Hub Gene Selection")
+st.subheader("Hub Gene Selection")
 
 ppi_method = st.radio(
-    "Select Hub Gene Detection Method",
+    "Select Hub Detection Method",
     ["MCC (Nodes Only)", "First Neighbour Expansion"]
 )
 
-hub_count = st.slider("Select Number of Hub Genes", 5, 50, 10)
+hub_count = st.slider(
+    "Number of Hub Genes",
+    min_value=5,
+    max_value=50,
+    value=10
+)
 
 show_edges_mcc = st.checkbox(
-    "Show edges in MCC mode (Optional)",
+    "Show edges in MCC mode",
     value=False
 )
 
@@ -427,7 +432,7 @@ if 'ppi' in locals() and not ppi.empty:
 
         subG = G_full.subgraph(hub_genes)
 
-        fig_mcc, ax_mcc = plt.subplots(figsize=(8,6))
+        fig_mcc, ax_mcc = plt.subplots(figsize=(8, 6))
 
         pos = nx.spring_layout(subG, seed=42)
 
@@ -446,9 +451,10 @@ if 'ppi' in locals() and not ppi.empty:
 
         st.pyplot(fig_mcc)
 
-        ALL_FIGURES.append(("PPI_MCC", fig_mcc))
+        if 'ALL_FIGURES' in locals():
+            ALL_FIGURES.append(("PPI_MCC", fig_mcc))
 
-    # ---------- FIRST NEIGHBOUR MODE ----------
+    # ---------- FIRST NEIGHBOUR ----------
     else:
 
         seed_gene = st.selectbox(
@@ -458,9 +464,10 @@ if 'ppi' in locals() and not ppi.empty:
 
         neighbors = list(G_full.neighbors(seed_gene))
         sub_nodes = neighbors + [seed_gene]
+
         subG = G_full.subgraph(sub_nodes)
 
-        fig_fn, ax_fn = plt.subplots(figsize=(8,6))
+        fig_fn, ax_fn = plt.subplots(figsize=(8, 6))
 
         pos = nx.spring_layout(subG, seed=42)
 
@@ -474,20 +481,21 @@ if 'ppi' in locals() and not ppi.empty:
 
         st.pyplot(fig_fn)
 
-        ALL_FIGURES.append(("PPI_FirstNeighbour", fig_fn))
+        if 'ALL_FIGURES' in locals():
+            ALL_FIGURES.append(("PPI_FirstNeighbour", fig_fn))
 
 
 # ==========================================================
-# INTERACTIVE DRAGGABLE NETWORK
+# INTERACTIVE DRAGGABLE NETWORK (PYVIS)
 # ==========================================================
 
-st.subheader("🌐 Interactive Draggable Network")
+st.subheader("Interactive Draggable Network")
 
 if st.checkbox("Enable Interactive Network"):
 
     if 'ppi' in locals() and not ppi.empty:
 
-        net = Network(height="650px", width="100%", notebook=False)
+        net = Network(height="650px", width="100%")
 
         for node in G_full.nodes:
             net.add_node(node, label=node)
@@ -495,18 +503,23 @@ if st.checkbox("Enable Interactive Network"):
         for edge in G_full.edges:
             net.add_edge(edge[0], edge[1])
 
-       tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".html")
-net.save_graph(tmp_file.name)
+        tmp_file = tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".html"
+        )
+        tmp_file.close()
 
+        net.save_graph(tmp_file.name)
 
-        st.components.v1.html(open(tmp_file.name).read(), height=650)
+        with open(tmp_file.name, "r", encoding="utf-8") as f:
+            st.components.v1.html(f.read(), height=650)
 
 
 # ==========================================================
 # PARALLEL CLASSICAL VS ADAPTIVE DASHBOARD
 # ==========================================================
 
-st.subheader("⚖️ Classical vs Adaptive DEG Comparison")
+st.subheader("Classical vs Adaptive DEG Comparison")
 
 if st.checkbox("Show Parallel Dashboard"):
 
@@ -527,7 +540,7 @@ if st.checkbox("Show Parallel Dashboard"):
 # CLINICAL INTERPRETATION GENERATOR
 # ==========================================================
 
-st.subheader("🏥 Clinical Interpretation Generator")
+st.subheader("Clinical Interpretation Generator")
 
 if st.checkbox("Generate Clinical Interpretation"):
 
@@ -536,17 +549,16 @@ if st.checkbox("Generate Clinical Interpretation"):
         report = f"""
 Clinical Molecular Interpretation
 
-Total DEGs Identified: {len(deg)}
+Total DEGs: {len(deg)}
 Upregulated Genes: {len(up_genes)}
 Downregulated Genes: {len(down_genes)}
 
-Hub genes identified via network centrality represent
-dominant biological regulators.
+Hub genes represent dominant regulatory points.
 
-Pathway enrichment indicates molecular system dysregulation.
+Enrichment results suggest systemic pathway changes.
 
-Adaptive biomathematical modeling suggests DEG stability
-within physiological variability ranges.
+Adaptive biomathematical modelling suggests DEG stability
+within physiological variability.
 """
 
         st.text_area("Clinical Report", report, height=250)
@@ -556,31 +568,34 @@ within physiological variability ranges.
 # MANUSCRIPT READY EXPORT
 # ==========================================================
 
-st.subheader("📑 Manuscript Figure Export")
+st.subheader("Publication Ready Export")
 
-if st.checkbox("Enable Publication Export"):
+if st.checkbox("Enable Manuscript Export"):
 
     export_format = st.selectbox(
-        "Select Export Format",
+        "Select Format",
         ["PNG (300 dpi)", "TIFF (600 dpi)"]
     )
 
-    for name, fig in ALL_FIGURES:
+    if 'ALL_FIGURES' in locals():
 
-        buffer = io.BytesIO()
+        for name, fig in ALL_FIGURES:
 
-        if "TIFF" in export_format:
-            fig.savefig(buffer, format="tiff", dpi=600)
-            ext = "tiff"
-        else:
-            fig.savefig(buffer, format="png", dpi=300)
-            ext = "png"
+            buffer = io.BytesIO()
 
-        st.download_button(
-            f"Download {name}",
-            buffer.getvalue(),
-            f"{name}.{ext}"
-        )
+            if "TIFF" in export_format:
+                fig.savefig(buffer, format="tiff", dpi=600)
+                ext = "tiff"
+            else:
+                fig.savefig(buffer, format="png", dpi=300)
+                ext = "png"
+
+            st.download_button(
+                f"Download {name}",
+                buffer.getvalue(),
+                f"{name}.{ext}"
+            )
+
 
 
 # ==================================================
