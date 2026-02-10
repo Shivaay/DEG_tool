@@ -350,6 +350,218 @@ if st.button("Generate PDF Report"):
     st.download_button("Download Full PDF Report", buffer.getvalue(),"Phoenix_Report.pdf")
 
 # ==================================================
+# ADDTIONAL PANEL
+# ==================================================
+# ==========================================================
+# ========= PHOENIX ADVANCED ADDITIVE MODULE ================
+# ==========================================================
+
+import tempfile
+from pyvis.network import Network
+
+# ==========================================================
+# TRUE cytoHubba MCC SCORING
+# ==========================================================
+
+st.header("🧮 cytoHubba MCC Scoring (Advanced)")
+
+def compute_true_mcc(G):
+
+    mcc_scores = {node: 0 for node in G.nodes}
+
+    cliques = list(nx.find_cliques(G))
+
+    for clique in cliques:
+        weight = np.math.factorial(len(clique)-1)
+        for node in clique:
+            mcc_scores[node] += weight
+
+    return mcc_scores
+
+
+if st.checkbox("Run True MCC cytoHubba Analysis"):
+
+    if 'ppi' in locals() and not ppi.empty:
+
+        G_full = nx.from_pandas_edgelist(
+            ppi,
+            "preferredName_A",
+            "preferredName_B"
+        )
+
+        mcc_scores = compute_true_mcc(G_full)
+
+        mcc_df = (
+            pd.DataFrame(mcc_scores.items(),columns=["Gene","MCC"])
+            .sort_values("MCC",ascending=False)
+            .head(20)
+        )
+
+        st.dataframe(mcc_df)
+
+
+# ==========================================================
+# PPI EXPANSION LOGIC
+# ==========================================================
+
+st.header("🧬 PPI Expansion Logic")
+
+ppi_logic = st.radio(
+    "Select PPI Expansion Mode",
+    ["MCC (Hub Nodes Only)", "First Neighbor Expansion"]
+)
+
+st.info("""
+MCC Mode → Displays hub genes only  
+First Neighbor → Expands to connected proteins  
+""")
+
+
+# ==========================================================
+# CYTOSCAPE FIRST NEIGHBOR NETWORK
+# ==========================================================
+
+if ppi_logic == "First Neighbor Expansion":
+
+    if 'ppi' in locals() and not ppi.empty:
+
+        G_full = nx.from_pandas_edgelist(
+            ppi,
+            "preferredName_A",
+            "preferredName_B"
+        )
+
+        seed_gene = st.selectbox(
+            "Select Hub Gene",
+            list(G_full.nodes)
+        )
+
+        neighbors = list(G_full.neighbors(seed_gene))
+        sub_nodes = neighbors + [seed_gene]
+        subG = G_full.subgraph(sub_nodes)
+
+        fig_fn, ax_fn = plt.subplots(figsize=(8,6))
+
+        pos = nx.spring_layout(subG, seed=42)
+
+        nx.draw(subG,pos,with_labels=True,node_size=2000,ax=ax_fn)
+
+        st.pyplot(fig_fn)
+        download_figure(fig_fn,"First_Neighbor")
+
+
+# ==========================================================
+# INTERACTIVE DRAGGABLE NETWORK
+# ==========================================================
+
+st.header("🌐 Interactive Network Viewer")
+
+if st.checkbox("Enable Interactive Network"):
+
+    if 'ppi' in locals() and not ppi.empty:
+
+        net = Network(height="650px", width="100%")
+
+        G_full = nx.from_pandas_edgelist(
+            ppi,
+            "preferredName_A",
+            "preferredName_B"
+        )
+
+        for node in G_full.nodes:
+            net.add_node(node, label=node)
+
+        for edge in G_full.edges:
+            net.add_edge(edge[0], edge[1])
+
+        tmp_file = tempfile.NamedTemporaryFile(delete=False)
+        net.save_graph(tmp_file.name)
+
+        st.components.v1.html(open(tmp_file.name).read(),height=650)
+
+
+# ==========================================================
+# PARALLEL CLASSICAL VS ADAPTIVE DASHBOARD
+# ==========================================================
+
+st.header("⚖️ Classical vs Adaptive Comparison")
+
+if st.checkbox("Show Parallel DEG Dashboard"):
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Classical DEG")
+        if 'deg' in locals():
+            st.metric("DEG Count", len(deg))
+
+    with col2:
+        if 'adaptive_threshold' in locals():
+            st.subheader("Adaptive Threshold")
+            st.metric("Threshold", adaptive_threshold)
+
+
+# ==========================================================
+# CLINICAL INTERPRETATION GENERATOR
+# ==========================================================
+
+st.header("🏥 Clinical Interpretation Generator")
+
+if st.checkbox("Generate Clinical Interpretation"):
+
+    if 'deg' in locals():
+
+        summary = f"""
+Clinical Molecular Summary
+
+• Total DEGs: {len(deg)}
+• Upregulated Genes: {len(up_genes)}
+• Downregulated Genes: {len(down_genes)}
+
+Hub genes represent dominant regulatory control points.
+
+Enrichment analysis indicates systemic pathway dysregulation.
+
+Adaptive modelling suggests DEG stability influenced by biological variability.
+        """
+
+        st.text_area("Clinical Report", summary, height=300)
+
+
+# ==========================================================
+# MANUSCRIPT READY EXPORT
+# ==========================================================
+
+st.header("📑 Manuscript Figure Export")
+
+if st.checkbox("Export Publication Figures"):
+
+    pub_format = st.selectbox(
+        "Export Format",
+        ["PNG 300dpi","TIFF 600dpi"]
+    )
+
+    if 'ALL_FIGURES' in locals():
+
+        for name, fig in ALL_FIGURES:
+
+            buf = io.BytesIO()
+
+            if "TIFF" in pub_format:
+                fig.savefig(buf, format="tiff", dpi=600)
+                ext="tiff"
+            else:
+                fig.savefig(buf, format="png", dpi=300)
+                ext="png"
+
+            st.download_button(
+                f"Download {name} ({pub_format})",
+                buf.getvalue(),
+                f"{name}.{ext}"
+            )
+
+
+# ==================================================
 # PHILOSOPHY PANEL
 # ==================================================
 st.info("""
