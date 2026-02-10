@@ -390,19 +390,22 @@ st.subheader("Hub Gene Selection")
 
 ppi_method = st.radio(
     "Select Hub Detection Method",
-    ["MCC (Nodes Only)", "First Neighbour Expansion"]
+    ["MCC (Nodes Only)", "First Neighbour Expansion"],
+    key="phoenix_ppi_method_selector"
 )
 
 hub_count = st.slider(
     "Number of Hub Genes",
     min_value=5,
     max_value=50,
-    value=10
+    value=10,
+    key="phoenix_hub_slider"
 )
 
 show_edges_mcc = st.checkbox(
     "Show edges in MCC mode",
-    value=False
+    value=False,
+    key="phoenix_mcc_edge_toggle"
 )
 
 # ==========================================================
@@ -459,7 +462,8 @@ if 'ppi' in locals() and not ppi.empty:
 
         seed_gene = st.selectbox(
             "Select Hub Gene",
-            list(G_full.nodes)
+            list(G_full.nodes),
+            key="phoenix_seed_gene_selector"
         )
 
         neighbors = list(G_full.neighbors(seed_gene))
@@ -491,7 +495,10 @@ if 'ppi' in locals() and not ppi.empty:
 
 st.subheader("Interactive Draggable Network")
 
-if st.checkbox("Enable Interactive Network"):
+if st.checkbox(
+    "Enable Interactive Network",
+    key="phoenix_interactive_network_toggle"
+):
 
     if 'ppi' in locals() and not ppi.empty:
 
@@ -521,7 +528,10 @@ if st.checkbox("Enable Interactive Network"):
 
 st.subheader("Classical vs Adaptive DEG Comparison")
 
-if st.checkbox("Show Parallel Dashboard"):
+if st.checkbox(
+    "Show Parallel Dashboard",
+    key="phoenix_parallel_dashboard_toggle"
+):
 
     col1, col2 = st.columns(2)
 
@@ -542,7 +552,10 @@ if st.checkbox("Show Parallel Dashboard"):
 
 st.subheader("Clinical Interpretation Generator")
 
-if st.checkbox("Generate Clinical Interpretation"):
+if st.checkbox(
+    "Generate Clinical Interpretation",
+    key="phoenix_clinical_generator_toggle"
+):
 
     if 'deg' in locals():
 
@@ -561,7 +574,12 @@ Adaptive biomathematical modelling suggests DEG stability
 within physiological variability.
 """
 
-        st.text_area("Clinical Report", report, height=250)
+        st.text_area(
+            "Clinical Report",
+            report,
+            height=250,
+            key="phoenix_clinical_report_box"
+        )
 
 
 # ==========================================================
@@ -570,11 +588,15 @@ within physiological variability.
 
 st.subheader("Publication Ready Export")
 
-if st.checkbox("Enable Manuscript Export"):
+if st.checkbox(
+    "Enable Manuscript Export",
+    key="phoenix_manuscript_export_toggle"
+):
 
     export_format = st.selectbox(
         "Select Format",
-        ["PNG (300 dpi)", "TIFF (600 dpi)"]
+        ["PNG (300 dpi)", "TIFF (600 dpi)"],
+        key="phoenix_export_format_selector"
     )
 
     if 'ALL_FIGURES' in locals():
@@ -593,9 +615,9 @@ if st.checkbox("Enable Manuscript Export"):
             st.download_button(
                 f"Download {name}",
                 buffer.getvalue(),
-                f"{name}.{ext}"
+                f"{name}.{ext}",
+                key=f"phoenix_download_{name}"
             )
-
 
 
 # ==================================================
