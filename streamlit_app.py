@@ -498,6 +498,7 @@ if st.checkbox("Enable Interactive Network"):
        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".html")
 net.save_graph(tmp_file.name)
 
+
         st.components.v1.html(open(tmp_file.name).read(), height=650)
 
 
