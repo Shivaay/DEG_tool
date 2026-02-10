@@ -495,8 +495,8 @@ if st.checkbox("Enable Interactive Network"):
         for edge in G_full.edges:
             net.add_edge(edge[0], edge[1])
 
-        tmp_file = tempfile.NamedTemporaryFile(delete=False)
-        net.save_graph(tmp_file.name)
+       tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".html")
+net.save_graph(tmp_file.name)
 
         st.components.v1.html(open(tmp_file.name).read(), height=650)
 
