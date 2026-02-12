@@ -22,6 +22,8 @@ import tempfile
 from pyvis.network import Network
 import warnings
 warnings.filterwarnings("ignore")
+from interpretation_engine import InterpretationInput, InterpretationEngine
+
 
 
 # ---------------- STREAMLIT CONFIG ----------------
@@ -620,6 +622,27 @@ if st.checkbox(
             )
 
 # =================================================
+st.header("🧠 Deterministic Interpretation Engine")
+
+if st.checkbox("Generate Interpretation Report"):
+
+    input_data = InterpretationInput(
+        deg_table=deg,
+        up_genes=up_genes,
+        down_genes=down_genes,
+        hub_genes=ALL_TABLES.get("HubGenes"),
+        enrichment_up=up_en,
+        enrichment_down=down_en,
+        mirna_df=mir,
+        tf_df=tf_df,
+        bayesian_confidence=conf if 'conf' in locals() else None,
+        adaptive_threshold=adaptive_threshold if 'adaptive_threshold' in locals() else None
+    )
+
+    engine = InterpretationEngine(input_data)
+    report = engine.generate_report()
+
+    st.text_area("Interpretation Report", report, height=400)
 
 # ==================================================
 # PHILOSOPHY PANEL
