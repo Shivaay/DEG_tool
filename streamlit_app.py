@@ -23,14 +23,6 @@ from pyvis.network import Network
 import warnings
 warnings.filterwarnings("ignore")
 
-from interpretation_engine import (
-    build_structured_results,
-    generate_interpretation
-)
-
-from openai import OpenAI
-
-
 
 # ---------------- STREAMLIT CONFIG ----------------
 st.set_page_config(page_title="PhoenixBioInfoSys DEG", layout="wide")
@@ -628,51 +620,6 @@ if st.checkbox(
             )
 
 # =================================================
-# ==========================================================
-# AI INTERPRETATION PANEL
-# ==========================================================
-
-st.markdown("---")
-st.header("🧠 AI Hypothesis & Scientific Interpretation")
-
-if st.button("Generate Scientific Hypothesis", key="interpret_btn"):
-
-    try:
-
-        # Build structured evidence
-        structured_data = build_structured_results(
-            up_genes=up_genes if "up_genes" in globals() else None,
-            down_genes=down_genes if "down_genes" in globals() else None,
-            enrichment_dict=enrichment_results if "enrichment_results" in globals() else None,
-            hub_genes=hub_genes if "hub_genes" in globals() else None,
-            mirna_df=mirna_table if "mirna_table" in globals() else None,
-            tf_df=tf_table if "tf_table" in globals() else None
-        )
-
-        client = OpenAI()
-
-        interpretation = generate_interpretation(
-            client,
-            structured_data
-        )
-
-        st.success("Interpretation Generated")
-
-        st.markdown("### Scientific Interpretation")
-        st.write(interpretation)
-
-        # Optional download
-        st.download_button(
-            "Download Interpretation",
-            interpretation,
-            file_name="scientific_interpretation.txt",
-            mime="text/plain",
-            key="interpret_download"
-        )
-
-    except Exception as e:
-        st.error(f"Interpretation failed: {e}")
-
 
 # ==================================================
 # PHILOSOPHY PANEL
