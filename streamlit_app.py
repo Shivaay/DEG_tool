@@ -90,8 +90,8 @@ with tabs[0]:
     df = df.dropna(subset=[gene_col, logfc_col, pval_col])
 
     st.sidebar.header("Thresholds")
-    neg_fc = st.sidebar.slider("Negative logFC", -5.0, 0.0, -1.0)
-    pos_fc = st.sidebar.slider("Positive logFC", 0.0, 5.0, 1.0)
+    neg_fc = st.sidebar.slider("Negative logFC", -10.0, 0.0, -1.0)
+    pos_fc = st.sidebar.slider("Positive logFC", 0.0, 10.0, 1.0)
     p_cut = st.sidebar.slider("p-value cutoff", 0.0001, 0.1, 0.05)
 
     df["Regulation"] = "Neutral"
