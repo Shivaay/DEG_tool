@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import io
 
-import Analyser   # Your original engine
+import upload   # Your original engine
 
 # ==========================================================
 # PAGE CONFIG
@@ -64,7 +64,7 @@ st.sidebar.title("Analysis Workflow")
 page = st.sidebar.radio(
     "Navigate",
     [
-        "Analyser & DEG Analysis",
+        "Upload & DEG Analysis",
         "Visualization",
         "Network Biology",
         "Regulatory Biology",
@@ -78,12 +78,12 @@ page = st.sidebar.radio(
 # PAGE 1 — DEG PIPELINE
 # ==========================================================
 
-if page == "Analyser & DEG Analysis":
+if page == "Upload & DEG Analysis":
 
-    st.header("📂 Analyser & Differential Expression")
+    st.header("📂 Upload & Differential Expression")
 
     # CALL ORIGINAL TOOL FUNCTION
-    Analyser.run_deg_pipeline()
+    upload.run_deg_pipeline()
 
 
 # ==========================================================
@@ -94,16 +94,16 @@ elif page == "Visualization":
 
     st.header("📊 Expression Visual Analytics")
 
-    Analyser.render_volcano()
+    upload.render_volcano()
 
-    if hasattr(Analyser, "render_heatmap"):
-        Analyser.render_heatmap()
+    if hasattr(upload, "render_heatmap"):
+        upload.render_heatmap()
 
     # ======================================================
     # GO VISUALIZATION (NEW)
     # ======================================================
 
-    if hasattr(Analyser, "up_en") and hasattr(Analyser, "down_en"):
+    if hasattr(upload, "up_en") and hasattr(upload, "down_en"):
 
         st.subheader("🧬 Gene Ontology Visualization")
 
@@ -131,13 +131,13 @@ elif page == "Visualization":
             return fig
 
         with tabs[0]:
-            fig = go_bar(Analyser.up_en, "Upregulated GO")
+            fig = go_bar(upload.up_en, "Upregulated GO")
             if fig:
                 st.pyplot(fig)
                 st.session_state.figures.append(("GO_Bar_Up", fig))
 
         with tabs[1]:
-            fig = go_bar(Analyser.down_en, "Downregulated GO")
+            fig = go_bar(upload.down_en, "Downregulated GO")
             if fig:
                 st.pyplot(fig)
                 st.session_state.figures.append(("GO_Bar_Down", fig))
@@ -151,7 +151,7 @@ elif page == "Network Biology":
 
     st.header("🔗 Protein Interaction Network")
 
-    Analyser.render_ppi_network()
+    upload.render_ppi_network()
 
 
 # ==========================================================
@@ -162,8 +162,8 @@ elif page == "Regulatory Biology":
 
     st.header("🧬 Regulatory Network Analysis")
 
-    Analyser.render_mirna_network()
-    Analyser.render_tf_network()
+    upload.render_mirna_network()
+    upload.render_tf_network()
 
 
 # ==========================================================
@@ -174,7 +174,7 @@ elif page == "Advanced Algorithms":
 
     st.header("⚙️ Adaptive Biomath & Machine Learning")
 
-    Analyser.run_advanced_algorithms()
+    upload.run_advanced_algorithms()
 
 
 # ==========================================================
@@ -185,7 +185,7 @@ elif page == "Interpretation Engine":
 
     st.header("🧠 Multi-layer Molecular Interpretation")
 
-    Analyser.run_interpretation()
+    upload.run_interpretation()
 
 
 # ==========================================================
