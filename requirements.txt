@@ -15,4 +15,4 @@ fpdf
 fpdf2
 scikit-learn
 pyvis
-
+statsmodels
