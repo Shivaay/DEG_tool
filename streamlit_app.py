@@ -55,8 +55,8 @@ tabs = st.tabs([
     "🧠 Enrichment",
     "🧬 Regulatory Networks",
     "🤖 Adaptive Layer",
-    "📄 Export & Interpretation"
-    " BioMath"
+    "📄 Export & Interpretation",
+    "BioMath"
 ])
 
 # ==================================================
