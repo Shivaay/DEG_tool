@@ -56,6 +56,7 @@ tabs = st.tabs([
     "🧬 Regulatory Networks",
     "🤖 Adaptive Layer",
     "📄 Export & Interpretation"
+    " BioMath"
 ])
 
 # ==================================================
@@ -290,6 +291,8 @@ with tabs[6]:
 
     if st.checkbox("Generate Interpretation Report"):
         pass
+
+with tabs[7]
 if st.checkbox("Enable BioMathematical + Interpretation Pipeline"):
 
     if st.button("Run Integrated Analysis"):
