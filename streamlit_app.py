@@ -1,7 +1,5 @@
 # ==========================================================
 # PhoenixBioInfoSys DEG Platform
-# Layout Upgrade + GO Visualization
-# Scientific Logic Fully Preserved
 # ==========================================================
 
 import streamlit as st
@@ -14,13 +12,7 @@ import requests
 import io
 from datetime import datetime
 from gprofiler import GProfiler
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.utils import resample
-from scipy.stats import beta
 from matplotlib.backends.backend_pdf import PdfPages
-import math
-import tempfile
-from pyvis.network import Network
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -28,13 +20,12 @@ from interpretation_engine import InterpretationInput, InterpretationEngine
 from biomath_layer import run_biomath_layer
 from interpreter_layer import run_interpreter_layer
 
-if "biomath_df" not in locals():
-    biomath_df = None
-
+# ---------------- SESSION STATE ----------------
+if "biomath_df" not in st.session_state:
+    st.session_state["biomath_df"] = None
 
 # ---------------- STREAMLIT CONFIG ----------------
 st.set_page_config(page_title="PhoenixBioInfoSys DEG", layout="wide")
-
 st.title("🧬 PhoenixBioInfoSys — DEG Interpretation Platform")
 
 ALL_FIGURES = []
@@ -46,11 +37,11 @@ ALL_TABLES = {}
 def download_figure(fig, name):
     buf = io.BytesIO()
     fig.savefig(buf, dpi=300, bbox_inches="tight")
-    st.download_button(f"Download {name} (300 DPI)", buf.getvalue(), f"{name}.png")
+    st.download_button(f"Download {name}", buf.getvalue(), f"{name}.png")
     ALL_FIGURES.append((name, fig))
 
 # ==================================================
-# TABS (NEW LAYOUT)
+# TABS
 # ==================================================
 tabs = st.tabs([
     "📂 Upload & DEG",
@@ -67,10 +58,7 @@ tabs = st.tabs([
 # ==================================================
 with tabs[0]:
 
-    uploaded = st.file_uploader(
-        "Upload DEG table (CSV / TSV / XLSX)",
-        type=["csv", "tsv", "xlsx"]
-    )
+    uploaded = st.file_uploader("Upload DEG table", type=["csv","tsv","xlsx"])
 
     if uploaded is None:
         st.stop()
@@ -84,7 +72,6 @@ with tabs[0]:
         return pd.read_excel(f)
 
     df = load_data(uploaded)
-    st.success(f"Loaded {df.shape[0]} genes")
 
     st.sidebar.header("Column Mapping")
     gene_col = st.sidebar.selectbox("Gene column", df.columns)
@@ -113,47 +100,42 @@ with tabs[0]:
     st.metric("Upregulated", len(up_genes))
     st.metric("Downregulated", len(down_genes))
 
+    # ✅ SHOW FILTERED TABLE
+    st.subheader("Filtered DEG Table")
+    st.dataframe(deg)
+
 # ==================================================
 # TAB 2 — VOLCANO
 # ==================================================
 with tabs[1]:
 
-    st.subheader("Volcano Plot")
-
-    palette = st.selectbox("Color Palette", ["Set1","coolwarm","viridis"])
-    colors = sns.color_palette(palette, 3)
-
-    fig_vol, ax = plt.subplots()
-
+    fig, ax = plt.subplots()
     ax.scatter(df[logfc_col], -np.log10(df[pval_col]), color="grey", s=8)
 
-    up_df = deg[deg["Regulation"]=="Up"]
-    down_df = deg[deg["Regulation"]=="Down"]
+    ax.scatter(deg[deg["Regulation"]=="Up"][logfc_col],
+               -np.log10(deg[deg["Regulation"]=="Up"][pval_col]),
+               color="red")
 
-    ax.scatter(up_df[logfc_col], -np.log10(up_df[pval_col]), color=colors[0])
-    ax.scatter(down_df[logfc_col], -np.log10(down_df[pval_col]), color=colors[1])
+    ax.scatter(deg[deg["Regulation"]=="Down"][logfc_col],
+               -np.log10(deg[deg["Regulation"]=="Down"][pval_col]),
+               color="blue")
 
-    ax.axhline(-np.log10(p_cut), linestyle="--")
-    ax.axvline(pos_fc, linestyle="--")
-    ax.axvline(neg_fc, linestyle="--")
-
-    st.pyplot(fig_vol)
-    download_figure(fig_vol, "Volcano")
+    st.pyplot(fig)
+    download_figure(fig,"Volcano")
 
 # ==================================================
 # TAB 3 — PPI
 # ==================================================
 with tabs[2]:
 
-    @st.cache_data(ttl=3600)
+    @st.cache_data
     def fetch_ppi(g):
         if len(g)==0:
             return pd.DataFrame()
         try:
             r = requests.post(
                 "https://string-db.org/api/tsv/network",
-                data={"identifiers":"%0d".join(g[:150]),"species":9606},
-                timeout=20
+                data={"identifiers":"%0d".join(g[:150]),"species":9606}
             )
             return pd.read_csv(io.StringIO(r.text), sep="\t")
         except:
@@ -164,149 +146,63 @@ with tabs[2]:
     if not ppi.empty:
 
         G = nx.from_pandas_edgelist(ppi,"preferredName_A","preferredName_B")
+        scores = dict(G.degree())
 
-        method = st.selectbox("Hub Metric", ["Degree","MCC"])
-        hub_count = st.slider("Hub Count",5,50,10)
+        hub = pd.DataFrame(scores.items(),columns=["Gene","Score"])\
+            .sort_values("Score",ascending=False).head(10)
 
-        if method=="Degree":
-            scores = dict(G.degree())
-        else:
-            scores = {n:len(list(nx.cliques_containing_node(G,n))) for n in G.nodes}
+        fig, ax = plt.subplots()
+        nx.draw(G.subgraph(hub["Gene"]), with_labels=True, ax=ax)
 
-        hub = pd.DataFrame(scores.items(),columns=["Gene","Score"]).sort_values("Score",ascending=False).head(hub_count)
+        st.pyplot(fig)
+        download_figure(fig,"PPI")
 
-        hubs = hub["Gene"].tolist()
-        subG = G.subgraph(hubs)
-
-        pos = nx.spring_layout(subG)
-
-        cmap = plt.cm.autumn
-        node_colors = [cmap(i/max(len(hubs)-1,1)) for i in range(len(hubs))]
-
-        fig_ppi, ax = plt.subplots(figsize=(8,6))
-        nx.draw(subG,pos,node_color=node_colors,node_size=2800,with_labels=True,ax=ax)
-
-        st.pyplot(fig_ppi)
-        download_figure(fig_ppi,"PPI")
-
-        st.dataframe(hub)
         ALL_TABLES["HubGenes"] = hub
 
-# ===== RUN BIOMATH LAYER =====
-if not ppi.empty:
-    ppi_edges = ppi[["preferredName_A","preferredName_B"]]
-    biomath_df = run_biomath_layer(deg, ppi_edges)
-else:
-    biomath_df = None
-
-run_biomath_layer()
-
-
 # ==================================================
-# TAB 4 — ENRICHMENT + GO VISUALIZATION
+# TAB 4 — ENRICHMENT
 # ==================================================
 with tabs[3]:
 
     gp = GProfiler(return_dataframe=True)
 
-    @st.cache_data
     def enrich(g):
         return gp.profile(organism="hsapiens", query=g) if g else pd.DataFrame()
 
     up_en = enrich(up_genes)
     down_en = enrich(down_genes)
 
-    def enrichment_tables(df_en, label):
-        for src in ["GO:BP","GO:MF","GO:CC","KEGG"]:
-            st.subheader(f"{label} — {src}")
-            sub = df_en[df_en["source"]==src]
-
-            if not sub.empty:
-                st.dataframe(sub[["name","p_value","intersection_size"]])
-
-                # ===== GO BAR =====
-                fig_bar, ax_bar = plt.subplots()
-                top = sub.head(10)
-                ax_bar.barh(top["name"], -np.log10(top["p_value"]))
-                ax_bar.set_title("GO Bar Plot")
-                st.pyplot(fig_bar)
-                download_figure(fig_bar,f"{label}_{src}_Bar")
-
-                # ===== GO PIE =====
-                fig_pie, ax_pie = plt.subplots()
-                ax_pie.pie(top["intersection_size"], labels=top["name"], autopct="%1.1f%%")
-                ax_pie.set_title("GO Pie Chart")
-                st.pyplot(fig_pie)
-                download_figure(fig_pie,f"{label}_{src}_Pie")
-
-    enrichment_tables(up_en,"Upregulated")
-    enrichment_tables(down_en,"Downregulated")
+    st.dataframe(up_en.head(10))
+    st.dataframe(down_en.head(10))
 
 # ==================================================
-# TAB 5 — miRNA + TF
+# TAB 5 — REGULATORY NETWORK
 # ==================================================
 with tabs[4]:
 
-    @st.cache_data(ttl=86400)
-    def fetch_mirtar(glist):
-        rows=[("miR-validated",g) for g in glist[:20]]
-        return pd.DataFrame(rows,columns=["miRNA","Gene"])
+    mir = pd.DataFrame({"miRNA":["miR-test"],"Gene":[genes[0]]}) if genes else pd.DataFrame()
+    tf_df = pd.DataFrame({"TF":["TF-test"],"Gene":[genes[0]]}) if genes else pd.DataFrame()
 
-    mir = fetch_mirtar(genes)
-    st.subheader("miRNA Network")
     st.dataframe(mir)
-
-    if not mir.empty:
-        Gmir = nx.from_pandas_edgelist(mir,"miRNA","Gene")
-        fig_mir, ax = plt.subplots()
-        nx.draw(Gmir,with_labels=True,node_size=1600,ax=ax)
-        st.pyplot(fig_mir)
-        download_figure(fig_mir,"miRNA")
-
-    @st.cache_data(ttl=86400)
-    def fetch_jaspar(glist):
-        rows=[("TF_predicted",g) for g in glist[:20]]
-        return pd.DataFrame(rows,columns=["TF","Gene"])
-
-    tf_df = fetch_jaspar(genes)
-    st.subheader("TF Network")
     st.dataframe(tf_df)
 
-    if not tf_df.empty:
-        Gtf = nx.from_pandas_edgelist(tf_df,"TF","Gene")
-        fig_tf, ax = plt.subplots()
-        nx.draw(Gtf,with_labels=True,node_size=1600,ax=ax)
-        st.pyplot(fig_tf)
-        download_figure(fig_tf,"TF")
-
 # ==================================================
-# TAB 6 — ADAPTIVE
+# TAB 6 — BIOMATH
 # ==================================================
 with tabs[5]:
 
     st.subheader("Adaptive BioMathematical Analysis")
 
-    enable_biomath = st.checkbox("Enable BioMathematical DEG Layer")
+    if st.checkbox("Enable BioMathematical Layer"):
 
-    if enable_biomath:
+        if st.button("Run Biomath Engine"):
 
-        if ppi.empty:
-            st.warning("PPI network required for biomath scoring")
+            if not ppi.empty:
+                ppi_edges = ppi[["preferredName_A","preferredName_B"]]
+                st.session_state["biomath_df"] = run_biomath_layer(deg, ppi_edges)
 
-        else:
-            if st.button("Run BioMathematical Engine"):
-
-                with st.spinner("Running biomathematical modelling..."):
-
-                    ppi_edges = ppi[["preferredName_A","preferredName_B"]]
-
-                    biomath_df = run_biomath_layer(deg, ppi_edges)
-
-                    st.success("Biomathematical scoring complete")
-
-                    st.dataframe(biomath_df.head(30))
-
-                    ALL_TABLES["Biomath"] = biomath_df
+                st.success("Biomath analysis complete")
+                st.dataframe(st.session_state["biomath_df"].head(20))
 
 # ==================================================
 # TAB 7 — EXPORT & INTERPRETATION
@@ -319,39 +215,20 @@ with tabs[6]:
             for name, fig in ALL_FIGURES:
                 pdf.savefig(fig)
 
-        st.download_button("Download Full PDF", buffer.getvalue(),"Phoenix_Report.pdf")
+        st.download_button("Download PDF", buffer.getvalue(),"Phoenix_Report.pdf")
 
-   if st.checkbox("Generate Interpretation Report"):
-       interpreter_results = None
-       if biomath_df is not None and not ppi.empty:
-           ppi_edges = ppi[["preferredName_A","preferredName_B"]]
-           interpreter_results = run_interpreter_layer(biomath_df, ppi_edges)
+    if st.checkbox("Generate Interpretation Report"):
 
-    input_data = InterpretationInput(
-        deg_table=deg,
-        up_genes=pd.DataFrame(up_genes, columns=["Gene"]),
-        down_genes=pd.DataFrame(down_genes, columns=["Gene"]),
-        hub_genes=ALL_TABLES.get("HubGenes"),
-        enrichment_up=up_en,
-        enrichment_down=down_en,
-        mirna_df=mir,
-        tf_df=tf_df,
-        bayesian_confidence=None,
-        adaptive_threshold=None
-    )
+        biomath_df = st.session_state.get("biomath_df")
 
-    engine = InterpretationEngine(input_data)
+        if biomath_df is not None and not ppi.empty:
+            ppi_edges = ppi[["preferredName_A","preferredName_B"]]
+            run_interpreter_layer(biomath_df, ppi_edges)
 
-    report = engine.generate_report()
-
-    st.text_area("Interpretation", report, height=400)
-
-
-        
         input_data = InterpretationInput(
             deg_table=deg,
-            up_genes=up_genes,
-            down_genes=down_genes,
+            up_genes=pd.DataFrame(up_genes, columns=["Gene"]),
+            down_genes=pd.DataFrame(down_genes, columns=["Gene"]),
             hub_genes=ALL_TABLES.get("HubGenes"),
             enrichment_up=up_en,
             enrichment_down=down_en,
@@ -362,13 +239,7 @@ with tabs[6]:
         engine = InterpretationEngine(input_data)
         st.text_area("Interpretation", engine.generate_report(), height=400)
 
-
-
 # ==================================================
 # METADATA
 # ==================================================
-st.header("Metadata")
-st.json({
-    "Timestamp": datetime.utcnow().isoformat(),
-    "DEGs": len(deg)
-})
+st.json({"Timestamp": datetime.utcnow().isoformat(),"DEGs": len(deg)})
