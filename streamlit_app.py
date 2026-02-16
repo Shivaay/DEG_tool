@@ -28,9 +28,8 @@ from interpretation_engine import InterpretationInput, InterpretationEngine
 from biomath_layer import run_biomath_layer
 from interpreter_layer import run_interpreter_layer
 
-biomath_df = run_biomath_layer(deg_df, ppi_edges)
-
-results = run_interpreter_layer(biomath_df, ppi_edges)
+if "biomath_df" not in locals():
+    biomath_df = None
 
 
 # ---------------- STREAMLIT CONFIG ----------------
@@ -193,6 +192,16 @@ with tabs[2]:
         st.dataframe(hub)
         ALL_TABLES["HubGenes"] = hub
 
+# ===== RUN BIOMATH LAYER =====
+if not ppi.empty:
+    ppi_edges = ppi[["preferredName_A","preferredName_B"]]
+    biomath_df = run_biomath_layer(deg, ppi_edges)
+else:
+    biomath_df = None
+
+run_biomath_layer()
+
+
 # ==================================================
 # TAB 4 — ENRICHMENT + GO VISUALIZATION
 # ==================================================
@@ -291,6 +300,12 @@ with tabs[6]:
 
     if st.checkbox("Generate Interpretation Report"):
 
+        # ===== RUN INTERPRETER LAYER =====
+if biomath_df is not None and not ppi.empty:
+    ppi_edges = ppi[["preferredName_A","preferredName_B"]]
+    interpreter_results = run_interpreter_layer(biomath_df, ppi_edges)
+
+
         input_data = InterpretationInput(
             deg_table=deg,
             up_genes=up_genes,
@@ -304,6 +319,8 @@ with tabs[6]:
 
         engine = InterpretationEngine(input_data)
         st.text_area("Interpretation", engine.generate_report(), height=400)
+run_interpreter_layer()
+
 
 # ==================================================
 # METADATA
