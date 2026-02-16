@@ -293,42 +293,44 @@ with tabs[6]:
         pass
 
 with tabs[7]:
+
     if st.checkbox("Enable BioMathematical + Interpretation Pipeline"):
 
-    if st.button("Run Integrated Analysis"):
+        if st.button("Run Integrated Analysis"):
 
-        results = bridge.run_full_pipeline(
-            deg_df = deg,
-            gene_col = gene_col,
-            logfc_col = logfc_col,
-            pval_col = pval_col,
-            ppi_df = ppi,
-            enrichment_up = up_en,
-            enrichment_down = down_en,
-            mirna_df = mir,
-            tf_df = tf_df,
-            hub_df = hub
+            results = bridge.run_full_pipeline(
+                deg_df = deg,
+                gene_col = gene_col,
+                logfc_col = logfc_col,
+                pval_col = pval_col,
+                ppi_df = ppi,
+                enrichment_up = up_en,
+                enrichment_down = down_en,
+                mirna_df = mir,
+                tf_df = tf_df,
+                hub_df = hub
+            )
+
+            st.session_state["biomath_df"] = results["biomath_deg"]
+            st.session_state["interpretation"] = results["interpretation"]
+
+            st.success("Integrated Analysis Completed")
+
+    # ---------- DISPLAY OUTPUT ----------
+    if st.session_state.get("biomath_df") is not None:
+
+        st.subheader("BioMathematical Results")
+        st.dataframe(st.session_state["biomath_df"])
+
+    if st.session_state.get("interpretation") is not None:
+
+        st.subheader("Scientific Interpretation")
+
+        st.text_area(
+            "Interpretation Report",
+            st.session_state["interpretation"]["text_report"],
+            height=400
         )
-
-        # ---------- STORE OUTPUT ----------
-        st.session_state["biomath_df"] = results["biomath_deg"]
-        st.session_state["interpretation"] = results["interpretation"]
-
-        st.success("Integrated Analysis Completed")
-if "biomath_df" in st.session_state:
-    st.subheader("BioMathematical Results")
-    st.dataframe(st.session_state["biomath_df"])
-
-if "interpretation" in st.session_state:
-
-    st.subheader("Scientific Interpretation")
-
-    st.text_area(
-        "Interpretation Report",
-        st.session_state["interpretation"]["text_report"],
-        height=400
-    )
-
 
     
 # ==================================================
