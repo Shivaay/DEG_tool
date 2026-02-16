@@ -25,6 +25,13 @@ import warnings
 warnings.filterwarnings("ignore")
 
 from interpretation_engine import InterpretationInput, InterpretationEngine
+from biomath_layer import run_biomath_layer
+from interpreter_layer import run_interpreter_layer
+
+biomath_df = run_biomath_layer(deg_df, ppi_edges)
+
+results = run_interpreter_layer(biomath_df, ppi_edges)
+
 
 # ---------------- STREAMLIT CONFIG ----------------
 st.set_page_config(page_title="PhoenixBioInfoSys DEG", layout="wide")
