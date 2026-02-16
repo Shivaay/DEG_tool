@@ -24,12 +24,6 @@ from pyvis.network import Network
 import warnings
 warnings.filterwarnings("ignore")
 
-from interpretation_engine import InterpretationInput, InterpretationEngine
-from biomath_layer import run_biomath_layer
-from interpreter_layer import run_interpreter_layer
-
-if "biomath_df" not in locals():
-    biomath_df = None
 
 
 # ---------------- STREAMLIT CONFIG ----------------
