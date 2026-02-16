@@ -186,14 +186,6 @@ with tabs[2]:
         st.dataframe(hub)
         ALL_TABLES["HubGenes"] = hub
 
-# ===== RUN BIOMATH LAYER =====
-if not ppi.empty:
-    ppi_edges = ppi[["preferredName_A","preferredName_B"]]
-    biomath_df = run_biomath_layer(deg, ppi_edges)
-else:
-    biomath_df = None
-
-run_biomath_layer()
 
 
 # ==================================================
@@ -293,26 +285,7 @@ with tabs[6]:
         st.download_button("Download Full PDF", buffer.getvalue(),"Phoenix_Report.pdf")
 
     if st.checkbox("Generate Interpretation Report"):
-        # ===== RUN INTERPRETER LAYER =====
-        if biomath_df is not None and not ppi.empty:
-            ppi_edges = ppi[["preferredName_A","preferredName_B"]]
-            interpreter_results = run_interpreter_layer(biomath_df, ppi_edges)
-
-        input_data = InterpretationInput(
-            deg_table=deg,
-            up_genes=up_genes,
-            down_genes=down_genes,
-            hub_genes=ALL_TABLES.get("HubGenes"),
-            enrichment_up=up_en,
-            enrichment_down=down_en,
-            mirna_df=mir,
-            tf_df=tf_df
-        )
-
-        engine = InterpretationEngine(input_data)
-        st.text_area("Interpretation", engine.generate_report(), height=400)
-run_interpreter_layer()
-
+        pass
 
 # ==================================================
 # METADATA
