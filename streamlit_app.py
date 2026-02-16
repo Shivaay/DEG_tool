@@ -321,18 +321,16 @@ with tabs[6]:
 
         st.download_button("Download Full PDF", buffer.getvalue(),"Phoenix_Report.pdf")
 
-    if st.checkbox("Generate Interpretation Report"):
-
-    interpreter_results = None
-
-    if biomath_df is not None and not ppi.empty:
-        ppi_edges = ppi[["preferredName_A","preferredName_B"]]
-        interpreter_results = run_interpreter_layer(biomath_df, ppi_edges)
+   if st.checkbox("Generate Interpretation Report"):
+       interpreter_results = None
+       if biomath_df is not None and not ppi.empty:
+           ppi_edges = ppi[["preferredName_A","preferredName_B"]]
+           interpreter_results = run_interpreter_layer(biomath_df, ppi_edges)
 
     input_data = InterpretationInput(
         deg_table=deg,
-        up_genes=pd.DataFrame(up_genes),
-        down_genes=pd.DataFrame(down_genes),
+        up_genes=pd.DataFrame(up_genes, columns=["Gene"]),
+        down_genes=pd.DataFrame(down_genes, columns=["Gene"]),
         hub_genes=ALL_TABLES.get("HubGenes"),
         enrichment_up=up_en,
         enrichment_down=down_en,
@@ -347,6 +345,7 @@ with tabs[6]:
     report = engine.generate_report()
 
     st.text_area("Interpretation", report, height=400)
+
 
         
         input_data = InterpretationInput(
