@@ -23,6 +23,8 @@ import tempfile
 from pyvis.network import Network
 import warnings
 warnings.filterwarnings("ignore")
+from pipeline_bridge import BioPipelineBridge
+
 
 
 
@@ -106,6 +108,8 @@ with tabs[0]:
     st.metric("Total DEGs", len(deg))
     st.metric("Upregulated", len(up_genes))
     st.metric("Downregulated", len(down_genes))
+
+bridge = BioPipelineBridge()
 
 # ==================================================
 # TAB 2 — VOLCANO
@@ -286,6 +290,41 @@ with tabs[6]:
 
     if st.checkbox("Generate Interpretation Report"):
         pass
+if st.checkbox("Enable BioMathematical + Interpretation Pipeline"):
+
+    if st.button("Run Integrated Analysis"):
+
+        results = bridge.run_full_pipeline(
+            deg_df = deg,
+            gene_col = gene_col,
+            logfc_col = logfc_col,
+            pval_col = pval_col,
+            ppi_df = ppi,
+            enrichment_up = up_en,
+            enrichment_down = down_en,
+            mirna_df = mir,
+            tf_df = tf_df,
+            hub_df = hub
+        )
+
+        # ---------- STORE OUTPUT ----------
+        st.session_state["biomath_df"] = results["biomath_deg"]
+        st.session_state["interpretation"] = results["interpretation"]
+
+        st.success("Integrated Analysis Completed")
+if "biomath_df" in st.session_state:
+    st.subheader("BioMathematical Results")
+    st.dataframe(st.session_state["biomath_df"])
+
+if "interpretation" in st.session_state:
+
+    st.subheader("Scientific Interpretation")
+
+    st.text_area(
+        "Interpretation Report",
+        st.session_state["interpretation"]["text_report"],
+        height=400
+    )
 
 # ==================================================
 # METADATA
