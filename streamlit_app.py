@@ -299,11 +299,10 @@ with tabs[6]:
         st.download_button("Download Full PDF", buffer.getvalue(),"Phoenix_Report.pdf")
 
     if st.checkbox("Generate Interpretation Report"):
-
-    # ===== RUN INTERPRETER LAYER =====
-    if biomath_df is not None and not ppi.empty:
-        ppi_edges = ppi[["preferredName_A","preferredName_B"]]
-        interpreter_results = run_interpreter_layer(biomath_df, ppi_edges)
+        # ===== RUN INTERPRETER LAYER =====
+        if biomath_df is not None and not ppi.empty:
+            ppi_edges = ppi[["preferredName_A","preferredName_B"]]
+            interpreter_results = run_interpreter_layer(biomath_df, ppi_edges)
 
         input_data = InterpretationInput(
             deg_table=deg,
