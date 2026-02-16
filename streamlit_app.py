@@ -283,7 +283,30 @@ with tabs[4]:
 # TAB 6 — ADAPTIVE
 # ==================================================
 with tabs[5]:
-    st.info("Adaptive biomath module preserved")
+
+    st.subheader("Adaptive BioMathematical Analysis")
+
+    enable_biomath = st.checkbox("Enable BioMathematical DEG Layer")
+
+    if enable_biomath:
+
+        if ppi.empty:
+            st.warning("PPI network required for biomath scoring")
+
+        else:
+            if st.button("Run BioMathematical Engine"):
+
+                with st.spinner("Running biomathematical modelling..."):
+
+                    ppi_edges = ppi[["preferredName_A","preferredName_B"]]
+
+                    biomath_df = run_biomath_layer(deg, ppi_edges)
+
+                    st.success("Biomathematical scoring complete")
+
+                    st.dataframe(biomath_df.head(30))
+
+                    ALL_TABLES["Biomath"] = biomath_df
 
 # ==================================================
 # TAB 7 — EXPORT & INTERPRETATION
@@ -299,11 +322,33 @@ with tabs[6]:
         st.download_button("Download Full PDF", buffer.getvalue(),"Phoenix_Report.pdf")
 
     if st.checkbox("Generate Interpretation Report"):
-        # ===== RUN INTERPRETER LAYER =====
-        if biomath_df is not None and not ppi.empty:
-            ppi_edges = ppi[["preferredName_A","preferredName_B"]]
-            interpreter_results = run_interpreter_layer(biomath_df, ppi_edges)
 
+    interpreter_results = None
+
+    if biomath_df is not None and not ppi.empty:
+        ppi_edges = ppi[["preferredName_A","preferredName_B"]]
+        interpreter_results = run_interpreter_layer(biomath_df, ppi_edges)
+
+    input_data = InterpretationInput(
+        deg_table=deg,
+        up_genes=pd.DataFrame(up_genes),
+        down_genes=pd.DataFrame(down_genes),
+        hub_genes=ALL_TABLES.get("HubGenes"),
+        enrichment_up=up_en,
+        enrichment_down=down_en,
+        mirna_df=mir,
+        tf_df=tf_df,
+        bayesian_confidence=None,
+        adaptive_threshold=None
+    )
+
+    engine = InterpretationEngine(input_data)
+
+    report = engine.generate_report()
+
+    st.text_area("Interpretation", report, height=400)
+
+        
         input_data = InterpretationInput(
             deg_table=deg,
             up_genes=up_genes,
@@ -317,7 +362,7 @@ with tabs[6]:
 
         engine = InterpretationEngine(input_data)
         st.text_area("Interpretation", engine.generate_report(), height=400)
-run_interpreter_layer()
+
 
 
 # ==================================================
