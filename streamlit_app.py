@@ -358,46 +358,33 @@ with tabs[4]:
 # ==================================================
 # TAB 5 — BIOMATH ENGINE
 # ==================================================
+# ==================================================
+# TAB 5 — BIOMATH ENGINE
+# ==================================================
 with tabs[5]:
 
     st.header("🧮 BioMathematical Engine")
 
-    # Check DEG availability
-    if st.session_state.get("deg") is None:
+    if "deg" not in st.session_state:
 
-        st.warning("⚠ Please complete DEG filtering in Tab 0 first.")
+        st.error("Please upload and filter DEG data in Tab 0 first.")
         st.stop()
-
-    st.markdown("""
-    This module calculates systems biology metrics including entropy,
-    stability, perturbation magnitude, and network centrality based on
-    the uploaded DEG dataset and protein interaction network.
-    """)
 
     if st.button("Run BioMathematical Analysis"):
 
         try:
 
-            # Retrieve stored session data
-            deg_df = st.session_state.get("deg")
+            deg_df = st.session_state["deg"]
 
-            gene_col = st.session_state.get("gene_col")
+            gene_col = st.session_state["gene_col"]
 
-            logfc_col = st.session_state.get("logfc_col")
+            logfc_col = st.session_state["logfc_col"]
 
-            pval_col = st.session_state.get("pval_col")
+            pval_col = st.session_state["pval_col"]
 
-            ppi_df = st.session_state.get("ppi")
-
-
-            # Validate inputs
-            if deg_df is None or deg_df.empty:
-
-                st.error("DEG data missing.")
-                st.stop()
+            ppi_df = st.session_state.get("ppi", None)
 
 
-            # Run biomath layer
             biomath_df, biomath_metrics = run_biomath_layer(
 
                 deg_df.copy(),
@@ -413,189 +400,143 @@ with tabs[5]:
             )
 
 
-            # Store results
+            # STORE FOR TAB6 & TAB7
             st.session_state["biomath_df"] = biomath_df
 
             st.session_state["biomath_metrics"] = biomath_metrics
 
+            st.session_state["biomath_results"] = {
 
-            # Show success
-            st.success("✅ BioMathematical Analysis Completed Successfully")
+                "gene_metrics": biomath_df,
+
+                "system_metrics": biomath_metrics,
+
+                "hub_genes": biomath_df.sort_values(
+                    "network_centrality",
+                    ascending=False
+                ).head(10)
+
+            }
 
 
-            # Display metrics
-            st.subheader("📊 Systems Biology Metrics")
+            st.success("BioMath Analysis Complete")
+
+
+            st.subheader("System Metrics")
 
             col1, col2, col3, col4 = st.columns(4)
 
-            col1.metric(
-                "System Entropy",
-                f"{biomath_metrics['system_entropy']:.4f}"
+            col1.metric("Entropy", f"{biomath_metrics['system_entropy']:.4f}")
+
+            col2.metric("Stability", f"{biomath_metrics['system_stability']:.4f}")
+
+            col3.metric("Centrality", f"{biomath_metrics['network_centrality']:.4f}")
+
+            col4.metric("Perturbation", f"{biomath_metrics['perturbation_magnitude']:.4f}")
+
+
+            st.dataframe(biomath_df, use_container_width=True)
+
+
+        except Exception as e:
+
+            st.error(str(e))
+# ==================================================
+# TAB 6 — Integrated Systems Biology
+# ==================================================
+with tabs[6]:
+
+    st.header("🧬 Integrated Systems Biology")
+
+    if "biomath_results" not in st.session_state:
+
+        st.error("Run BioMath Engine first in Tab 5")
+
+        st.stop()
+
+
+    biomath_results = st.session_state["biomath_results"]
+
+    gene_metrics = biomath_results["gene_metrics"]
+
+    system_metrics = biomath_results["system_metrics"]
+
+    hub_genes = biomath_results["hub_genes"]
+
+
+    st.subheader("System Metrics")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric("Entropy", round(system_metrics["system_entropy"],4))
+
+    col2.metric("Stability", round(system_metrics["system_stability"],4))
+
+    col3.metric("Centrality", round(system_metrics["network_centrality"],4))
+
+    col4.metric("Perturbation", round(system_metrics["perturbation_magnitude"],4))
+
+
+    st.subheader("Gene Metrics")
+
+    st.dataframe(gene_metrics)
+
+
+    st.subheader("Hub Genes")
+
+    st.dataframe(hub_genes)
+# ==================================================
+# TAB 7 — Scientific Interpretation Engine
+# ==================================================
+with tabs[7]:
+
+    st.header("Scientific Interpretation Engine")
+
+    if "biomath_results" not in st.session_state:
+
+        st.error("Run BioMath Engine first")
+
+        st.stop()
+
+
+    if st.button("Generate Scientific Interpretation"):
+
+        try:
+
+            biomath_results = st.session_state["biomath_results"]
+
+            engine = InterpretationEngine(
+
+                biomath_results=biomath_results
+
             )
 
-            col2.metric(
-                "System Stability",
-                f"{biomath_metrics['system_stability']:.4f}"
-            )
 
-            col3.metric(
-                "Network Centrality",
-                f"{biomath_metrics['network_centrality']:.4f}"
-            )
-
-            col4.metric(
-                "Perturbation Magnitude",
-                f"{biomath_metrics['perturbation_magnitude']:.4f}"
-            )
+            report = engine.generate()
 
 
-            # Display biomath table
-            st.subheader("🧬 Gene-Level BioMath Results")
-
-            st.dataframe(
-
-                biomath_df,
-
-                use_container_width=True
-
-            )
+            st.success("Interpretation Generated")
 
 
-            # Download option
+            st.subheader("Manuscript Ready Output")
+
+            st.write(report["text_report"])
+
+
             st.download_button(
 
-                "Download BioMath Results",
+                "Download Report",
 
-                biomath_df.to_csv(index=False),
+                report["text_report"],
 
-                "biomath_results.csv",
-
-                mime="text/csv"
+                "interpretation.txt"
 
             )
 
 
         except Exception as e:
 
-            st.error(f"Biomath Engine Error: {str(e)}")
-            
-
-# ==================================================
-# TAB 6 — EXPORT (PDF UNCHANGED)
-# ==================================================
-# TAB 6 — EXPORT & REPORT GENERATION
-# ==================================================
-        # ==============================
-# TAB 6 — Integrated Systems Biology
-# ==============================
-
-# =========================================================
-# TAB 6 — BIOMATH LAYER
-# =========================================================
-
-import warnings
-warnings.filterwarnings("ignore")
-
-with tab6:
-
-    st.header("📊 BioMath Systems Layer")
-
-    try:
-
-        if "deg_df" not in st.session_state:
-
-            st.info("Run DEG Analysis first.")
-
-        else:
-
-            if st.button("Run BioMath Analysis"):
-
-                from pipeline_bridge import BioPipelineBridge
-
-                with st.spinner("Running Systems Biology Engine..."):
-
-                    bridge = BioPipelineBridge()
-
-                    result = bridge.run_pipeline(
-
-                        deg_df=st.session_state["deg_df"],
-
-                        gene_col="gene",
-
-                        logfc_col="logFC",
-
-                        pval_col="pvalue",
-
-                        ppi_df=st.session_state.get("ppi_df", None),
-
-                        hub_df=st.session_state.get("hub_df", None)
-
-                    )
-
-                    st.session_state["pipeline_result"] = result
-
-                st.success("BioMath Layer Completed Successfully")
-
-    except Exception:
-
-        st.error("BioMath Layer Failed")
-
-
-# ==============================
-# TAB 7 — Interpretation Engine
-# ==============================
-
-# ==============================
-# TAB 7 — Scientific Interpretation Engine
-# ==============================
-
-# =========================================================
-# TAB 7 — INTERPRETATION ENGINE
-# =========================================================
-
-import warnings
-warnings.filterwarnings("ignore")
-
-with tab7:
-
-    st.header("🧠 Scientific Interpretation Engine")
-
-    try:
-
-        if "pipeline_result" not in st.session_state:
-
-            st.info("Run BioMath Layer first.")
-
-        else:
-
-            if st.button("Generate Scientific Interpretation"):
-
-                with st.spinner("Generating Manuscript..."):
-
-                    report = st.session_state["pipeline_result"]["report"]
-
-                st.success("Scientific Manuscript Generated")
-
-                st.subheader("📜 Manuscript-Ready Report")
-
-                st.write(report)
-
-                st.download_button(
-
-                    label="Download Report",
-
-                    data=report,
-
-                    file_name="PhoenixBioInfoSys_Report.txt",
-
-                    mime="text/plain"
-
-                )
-
-    except Exception:
-
-        st.error("Interpretation Engine Failed")
-
+            st.error(str(e))
 
 # ==================================================
 # METADATA (SAFE)
