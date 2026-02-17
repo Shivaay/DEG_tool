@@ -50,14 +50,18 @@ def download_figure(fig, name):
 
 
 tabs = st.tabs([
-    "Upload",
-    "Preprocess",
-    "DEG Analysis",
-    "Network",
-    "Hub Genes",
-    "BioMath Layer",
-    "Scientific Interpretation"
+    "DEG Upload",
+    "Tab1",
+    "Tab2",
+    "Tab3",
+    "Tab4",
+    "Tab5",
+    "Tab6",
+    "Integrated Systems Biology"
 ])
+
+tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = tabs
+
 
 
 # =====================================================
