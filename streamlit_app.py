@@ -350,54 +350,131 @@ with tabs[4]:
 # ==================================================
 # ==================================================
 # TAB 5 — BIOMATH ENGINE
+# ==
+# ==================================================
+# TAB 5 — BIOMATH ENGINE
 # ==================================================
 with tabs[5]:
 
     st.header("🧮 BioMathematical Engine")
 
+    # Check DEG availability
     if st.session_state.get("deg") is None:
+
         st.warning("⚠ Please complete DEG filtering in Tab 0 first.")
         st.stop()
+
+    st.markdown("""
+    This module calculates systems biology metrics including entropy,
+    stability, perturbation magnitude, and network centrality based on
+    the uploaded DEG dataset and protein interaction network.
+    """)
 
     if st.button("Run BioMathematical Analysis"):
 
         try:
 
-            gene_col = st.session_state.get("gene_col")
-            logfc_col = st.session_state.get("logfc_col")
+            # Retrieve stored session data
             deg_df = st.session_state.get("deg")
 
-            ppi = st.session_state.get(
-                "ppi",
-                pd.DataFrame(columns=["source", "target"])
-            )
+            gene_col = st.session_state.get("gene_col")
+
+            logfc_col = st.session_state.get("logfc_col")
 
             pval_col = st.session_state.get("pval_col")
+
+            ppi_df = st.session_state.get("ppi")
+
+
+            # Validate inputs
+            if deg_df is None or deg_df.empty:
+
+                st.error("DEG data missing.")
+                st.stop()
+
+
+            # Run biomath layer
             biomath_df, biomath_metrics = run_biomath_layer(
+
                 deg_df.copy(),
+
                 gene_col,
+
                 logfc_col,
+
                 pval_col,
-                ppi
+
+                ppi_df
+
             )
 
-st.session_state["biomath_df"] = biomath_df
-st.session_state["biomath_metrics"] = biomath_metrics
 
-st.success("✅ Biomath Analysis Completed")
-
-
+            # Store results
             st.session_state["biomath_df"] = biomath_df
 
-            st.session_state["interpretation"] = {
-                "text_report": "BioMathematical analysis successfully completed."
-            }
+            st.session_state["biomath_metrics"] = biomath_metrics
 
-            st.success("✅ Biomath Analysis Completed")
+
+            # Show success
+            st.success("✅ BioMathematical Analysis Completed Successfully")
+
+
+            # Display metrics
+            st.subheader("📊 Systems Biology Metrics")
+
+            col1, col2, col3, col4 = st.columns(4)
+
+            col1.metric(
+                "System Entropy",
+                f"{biomath_metrics['system_entropy']:.4f}"
+            )
+
+            col2.metric(
+                "System Stability",
+                f"{biomath_metrics['system_stability']:.4f}"
+            )
+
+            col3.metric(
+                "Network Centrality",
+                f"{biomath_metrics['network_centrality']:.4f}"
+            )
+
+            col4.metric(
+                "Perturbation Magnitude",
+                f"{biomath_metrics['perturbation_magnitude']:.4f}"
+            )
+
+
+            # Display biomath table
+            st.subheader("🧬 Gene-Level BioMath Results")
+
+            st.dataframe(
+
+                biomath_df,
+
+                use_container_width=True
+
+            )
+
+
+            # Download option
+            st.download_button(
+
+                "Download BioMath Results",
+
+                biomath_df.to_csv(index=False),
+
+                "biomath_results.csv",
+
+                mime="text/csv"
+
+            )
+
 
         except Exception as e:
-            st.error(f"Biomath Engine Error: {e}")
 
+            st.error(f"Biomath Engine Error: {str(e)}")
+            
 
 # ==================================================
 # TAB 6 — EXPORT (PDF UNCHANGED)
