@@ -121,6 +121,11 @@ with tabs[0]:
     ] = "Down"
 
     deg = df[df["Regulation"] != "Neutral"].copy()
+    st.session_state["deg"] = deg
+    st.session_state["gene_col"] = gene_col
+    st.session_state["logfc_col"] = logfc_col
+    st.session_state["pval_col"] = pval_col
+
 
     up_genes = deg[deg["Regulation"] == "Up"][gene_col].astype(str).tolist()
     down_genes = deg[deg["Regulation"] == "Down"][gene_col].astype(str).tolist()
