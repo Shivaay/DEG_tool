@@ -1,10 +1,16 @@
 # =========================================================
-# REAL INTERPRETATION ENGINE
+# PhoenixBioInfoSys Interpretation Engine
+# Real Systems Biology Interpretation Layer
+# Fully Fixed and Robust Version
 # =========================================================
 
 from dataclasses import dataclass
 import numpy as np
 
+
+# =========================================================
+# INPUT STRUCTURE
+# =========================================================
 
 @dataclass
 class InterpretationInput:
@@ -16,6 +22,10 @@ class InterpretationInput:
     hub_genes: object
 
 
+# =========================================================
+# INTERPRETATION ENGINE
+# =========================================================
+
 class InterpretationEngine:
 
 
@@ -24,48 +34,128 @@ class InterpretationEngine:
         self.data = data
 
 
+    # =====================================================
+    # TRANSCRIPTOMIC STATE ANALYSIS
+    # =====================================================
+
     def transcriptomic_state(self):
 
-        up = len(self.data.deg_table[
-            self.data.deg_table["Regulation"] == "Up"
-        ])
+        try:
 
-        down = len(self.data.deg_table[
-            self.data.deg_table["Regulation"] == "Down"
-        ])
+            up = len(
+                self.data.deg_table[
+                    self.data.deg_table["Regulation"] == "Up"
+                ]
+            )
 
-        if up > down:
+            down = len(
+                self.data.deg_table[
+                    self.data.deg_table["Regulation"] == "Down"
+                ]
+            )
 
-            return "activation"
+            if up > down:
 
-        else:
+                return "activation"
 
-            return "suppression"
+            elif down > up:
 
+                return "suppression"
+
+            else:
+
+                return "balanced regulation"
+
+
+        except Exception:
+
+            return "unknown regulatory state"
+
+
+
+    # =====================================================
+    # SYSTEM COLLAPSE PROBABILITY
+    # =====================================================
 
     def collapse_probability(self):
 
-        m = self.data.biomath_metrics
+        try:
 
-        entropy = m["system_entropy"]
+            m = self.data.biomath_metrics
 
-        perturb = m["perturbation_magnitude"]
+            entropy = float(m.get("system_entropy", 0))
 
-        stability = m["system_stability"]
+            perturb = float(m.get("perturbation_magnitude", 0))
 
-        return entropy * perturb * (1 - stability)
+            stability = float(m.get("system_stability", 0))
 
+
+            collapse = entropy * perturb * (1 - stability)
+
+            return collapse
+
+
+        except Exception:
+
+            return 0
+
+
+
+    # =====================================================
+    # HUB GENE ANALYSIS (FIXED VERSION)
+    # =====================================================
 
     def hub_analysis(self):
 
-        if self.data.hub_genes is None:
+        try:
 
-            return "No hub genes detected"
+            if self.data.hub_genes is None:
 
-        top_gene = self.data.hub_genes.iloc[0]["gene"]
+                return "No hub genes detected."
 
-        return f"Hub gene {top_gene} shows highest regulatory influence"
 
+            if len(self.data.hub_genes) == 0:
+
+                return "No hub genes detected."
+
+
+            columns = list(self.data.hub_genes.columns)
+
+
+            # Automatically detect correct column
+            if "Gene" in columns:
+
+                top_gene = self.data.hub_genes.iloc[0]["Gene"]
+
+            elif "gene" in columns:
+
+                top_gene = self.data.hub_genes.iloc[0]["gene"]
+
+            else:
+
+                return "Hub gene column not found."
+
+
+            return (
+
+                f"The hub gene {top_gene} exhibits the highest network "
+
+                f"centrality, indicating a dominant regulatory role "
+
+                f"in the transcriptomic system."
+
+            )
+
+
+        except Exception:
+
+            return "Hub gene analysis unavailable."
+
+
+
+    # =====================================================
+    # GENERATE FULL REPORT
+    # =====================================================
 
     def generate(self):
 
@@ -75,74 +165,94 @@ class InterpretationEngine:
 
         hub_text = self.hub_analysis()
 
+
         m = self.data.biomath_metrics
+
+
+        entropy = float(m.get("system_entropy", 0))
+
+        stability = float(m.get("system_stability", 0))
+
+        centrality = float(m.get("network_centrality", 0))
+
+        perturb = float(m.get("perturbation_magnitude", 0))
 
 
         report = f"""
 
-SYSTEMS BIOLOGY REPORT
+============================================================
+
+PhoenixBioInfoSys Systems Biology Interpretation Report
+
+============================================================
 
 
-The transcriptomic profile shows dominant {state} pattern.
+Transcriptomic Regulatory State:
 
-System entropy is {m['system_entropy']:.3f},
+The transcriptomic profile demonstrates dominant {state}
 
-indicating biological complexity.
-
-
-System stability score is {m['system_stability']:.3f},
-
-suggesting robustness level.
+pattern, indicating a system-wide regulatory shift.
 
 
-Network centrality score is {m['network_centrality']:.3f},
+System Entropy:
 
-indicating regulatory connectivity.
+The calculated entropy value of {entropy:.4f} reflects the
+
+degree of transcriptomic disorder and regulatory complexity.
 
 
-Perturbation magnitude is {m['perturbation_magnitude']:.3f},
+System Stability:
 
-indicating transcriptional disruption strength.
+The stability score of {stability:.4f} indicates the system’s
 
+resilience against perturbation.
+
+
+Network Influence:
+
+The network centrality score of {centrality:.4f} reflects the
+
+importance of regulatory connectivity among genes.
+
+
+Perturbation Magnitude:
+
+The perturbation magnitude of {perturb:.4f} indicates the
+
+strength of transcriptional disruption.
+
+
+Hub Gene Analysis:
 
 {hub_text}
 
 
-Predicted system collapse probability is
+Collapse Probability:
 
-{collapse:.3f}
+The predicted system collapse probability is {collapse:.4f},
+
+indicating the likelihood of regulatory instability.
 
 
-Conclusion:
+Biological Interpretation:
 
-The system shows biologically meaningful regulatory
+These results suggest biologically meaningful regulatory
 
-changes driven by network-connected genes.
+alterations driven by key network genes and coordinated
+
+transcriptional dynamics.
+
+
+============================================================
+
+End of Report
+
+============================================================
 
 """
 
+
         return report
-        manuscript = f"""
-SYSTEMS BIOLOGY INTERPRETATION REPORT
-
-Transcriptomic Program:
-The molecular landscape exhibits dominant {dominance} architecture.
-
-Network Entropy: {m.get('network_entropy',0):.3f}
-System Stability: {m.get('system_stability',0):.3f}
-Perturbation Magnitude: {m.get('perturbation_magnitude',0):.3f}
-Topology Score: {m.get('topology_score',0):.3f}
-Bayesian Entropy: {m.get('bayesian_entropy',0):.3f}
-Multi-Omics Integration Index: {m.get('multiomics_index',0):.3f}
-
-Systems Collapse Probability:
-{collapse:.3f}
-
-Mechanistic Systems Interpretation:
-Regulatory hubs amplify transcriptional cascades, producing non-linear pathway reinforcement.
-Network topology indicates concentrated regulatory bottlenecks.
-Multi-omics integration score confirms cross-layer coherence.
-
 Clinical Translation:
 High-centrality genes represent therapeutic leverage nodes.
 Perturbation magnitude suggests intervention-responsive phenotype.
