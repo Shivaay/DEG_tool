@@ -25,6 +25,7 @@ import warnings
 warnings.filterwarnings("ignore")
 from pipeline_bridge import BioPipelineBridge
 from biomath_layer import BioPipelineBridge
+from biomath_layer import run_biomath_layer
 
 
 
