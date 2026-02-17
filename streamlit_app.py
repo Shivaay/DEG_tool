@@ -507,7 +507,7 @@ with tabs[7]:
 
             engine = InterpretationEngine(
 
-                biomath_results=biomath_results
+                biomath_results
 
             )
 
