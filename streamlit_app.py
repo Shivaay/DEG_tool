@@ -49,7 +49,7 @@ def download_figure(fig, name):
 
 
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+tabs = st.tabs([
     "Upload",
     "Preprocess",
     "DEG Analysis",
@@ -58,6 +58,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "BioMath Layer",
     "Scientific Interpretation"
 ])
+
 
 # =====================================================
 # TAB 0 — DEG UPLOAD
