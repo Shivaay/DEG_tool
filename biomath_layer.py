@@ -1,185 +1,150 @@
 # =========================================================
-# BIOMATH LAYER (FINAL STABLE VERSION)
+# REAL BIOMATH LAYER
+# Deterministic Systems Biology Metrics
 # =========================================================
 
 import numpy as np
 import pandas as pd
 import networkx as nx
-import matplotlib.pyplot as plt
-from scipy.integrate import odeint
 from sklearn.preprocessing import MinMaxScaler
+from scipy.stats import entropy
 
 
 # =========================================================
-# CORE FUNCTIONS
+# GENE IMPORTANCE USING STATISTICAL SIGNIFICANCE
 # =========================================================
 
-def genetic_algorithm_score(deg_df, log_col):
-    deg_df["ga_score"] = np.abs(deg_df[log_col]) * np.random.uniform(0.8, 1.2, len(deg_df))
-    return deg_df
+def gene_importance_score(deg_df, logfc_col, pval_col):
+
+    df = deg_df.copy()
+
+    df["abs_logFC"] = np.abs(df[logfc_col])
+
+    df["importance_score"] = (
+        df["abs_logFC"] *
+        (-np.log10(df[pval_col] + 1e-300))
+    )
+
+    return df
 
 
-def monte_carlo_stability(deg_df, simulations=100):
-    stability = []
-    for _ in range(len(deg_df)):
-        samples = np.random.normal(0, 1, simulations)
-        stability.append(np.std(samples))
-    deg_df["mc_stability"] = stability
-    return deg_df
+# =========================================================
+# SYSTEM STABILITY (BASED ON VARIANCE)
+# =========================================================
+
+def system_stability_score(deg_df, logfc_col):
+
+    variance = np.var(deg_df[logfc_col])
+
+    stability = 1 / (1 + variance)
+
+    deg_df["system_stability"] = stability
+
+    return deg_df, stability
 
 
-def fuzzy_model(deg_df, log_col):
-    deg_df["fuzzy_score"] = 1 / (1 + np.exp(-deg_df[log_col]))
-    return deg_df
+# =========================================================
+# PROBABILITY DISTRIBUTION
+# =========================================================
+
+def gene_probability_distribution(deg_df, logfc_col):
+
+    abs_vals = np.abs(deg_df[logfc_col])
+
+    prob = abs_vals / abs_vals.sum()
+
+    deg_df["gene_probability"] = prob
+
+    return deg_df, prob
 
 
-def bayesian_probability(deg_df, log_col):
-    abs_vals = np.abs(deg_df[log_col])
-    prob = abs_vals / (np.sum(abs_vals) + 1e-9)
-    deg_df["bayesian_prob"] = prob
-    return deg_df
-
+# =========================================================
+# NETWORK INFLUENCE
+# =========================================================
 
 def network_influence_score(ppi_edges, deg_df, gene_col):
-    try:
-        if ppi_edges is None or ppi_edges.empty:
-            deg_df["network_influence"] = 0
-            return deg_df
 
-        if not {"source", "target"}.issubset(ppi_edges.columns):
-            deg_df["network_influence"] = 0
-            return deg_df
+    if ppi_edges is None or ppi_edges.empty:
 
-        G = nx.from_pandas_edgelist(ppi_edges, "source", "target")
-        centrality = nx.degree_centrality(G)
+        deg_df["network_centrality"] = 0
+        return deg_df, 0
 
-        deg_df["network_influence"] = (
-            deg_df[gene_col].astype(str).map(centrality).fillna(0)
-        )
+    G = nx.from_pandas_edgelist(
+        ppi_edges,
+        "preferredName_A",
+        "preferredName_B"
+    )
 
-    except:
-        deg_df["network_influence"] = 0
+    centrality = nx.degree_centrality(G)
 
-    return deg_df
+    deg_df["network_centrality"] = (
+        deg_df[gene_col].map(centrality).fillna(0)
+    )
 
+    avg_centrality = np.mean(list(centrality.values()))
 
-def combined_biomath_score(deg_df):
-    deg_df["biomath_score"] = (
-        deg_df["ga_score"] +
-        deg_df["mc_stability"] +
-        deg_df["fuzzy_score"] +
-        deg_df["bayesian_prob"] +
-        deg_df["network_influence"]
-    ) / 5
-    return deg_df
+    return deg_df, avg_centrality
 
 
 # =========================================================
-# ADVANCED EXTENSIONS
+# SYSTEM ENTROPY
 # =========================================================
 
-def dynamic_topology_score(ppi_edges):
-    try:
-        if ppi_edges is None or ppi_edges.empty:
-            return 0
+def system_entropy(prob_distribution):
 
-        if not {"source", "target"}.issubset(ppi_edges.columns):
-            return 0
-
-        G = nx.from_pandas_edgelist(ppi_edges, "source", "target")
-        return (nx.density(G) + nx.average_clustering(G)) / 2
-
-    except:
-        return 0
-
-
-def bayesian_entropy_metric(deg_df, log_col):
-    scaler = MinMaxScaler()
-    norm = scaler.fit_transform(deg_df[[log_col]]).flatten()
-    prob = norm / (np.sum(norm) + 1e-9)
-    return -np.sum(prob * np.log2(prob + 1e-9))
-
-
-def multiomics_integration_index(deg_df, log_col):
-    return float(np.mean(np.abs(deg_df[log_col])) * 0.8)
-
-
-def time_series_ode_model(deg_df, log_col):
-
-    def ode_model(x, t, k):
-        return k * x * (1 - x)
-
-    k = 0.5 + np.mean(np.abs(deg_df[log_col]))
-    t = np.linspace(0, 10, 200)
-    sol = odeint(ode_model, 0.1, t, args=(k,))
-
-    fig, ax = plt.subplots(figsize=(6, 4))
-    ax.plot(t, sol)
-    ax.set_title("Time-Series ODE Transcriptomic Dynamics")
-    ax.grid(True)
-
-    return fig, k
-
-
-def publication_network_plot(ppi_edges):
-
-    try:
-        if ppi_edges is None or ppi_edges.empty:
-            return None
-
-        if not {"source", "target"}.issubset(ppi_edges.columns):
-            return None
-
-        G = nx.from_pandas_edgelist(ppi_edges, "source", "target")
-
-        fig = plt.figure(figsize=(6, 6))
-        pos = nx.spring_layout(G, seed=42)
-        nx.draw(G, pos, node_size=20, edge_color="gray", alpha=0.7, with_labels=False)
-        plt.title("Protein-Protein Interaction Network")
-
-        return fig
-
-    except:
-        return None
+    return entropy(prob_distribution, base=2)
 
 
 # =========================================================
-# MAIN PIPELINE
+# SYSTEM PERTURBATION MAGNITUDE
 # =========================================================
 
-def run_biomath_layer(deg_df, gene_col, logfc_col, ppi_edges=None):
+def perturbation_magnitude(deg_df, logfc_col):
 
-    if deg_df is None or deg_df.empty:
-        raise ValueError("DEG dataframe is empty.")
+    return np.mean(np.abs(deg_df[logfc_col]))
 
-    deg_df = deg_df.copy()
 
-    # CORE
-    deg_df = genetic_algorithm_score(deg_df, logfc_col)
-    deg_df = monte_carlo_stability(deg_df)
-    deg_df = fuzzy_model(deg_df, logfc_col)
-    deg_df = bayesian_probability(deg_df, logfc_col)
-    deg_df = network_influence_score(ppi_edges, deg_df, gene_col)
-    deg_df = combined_biomath_score(deg_df)
+# =========================================================
+# MAIN BIOMATH EXECUTION
+# =========================================================
 
-    # ADVANCED
-    topology_score = dynamic_topology_score(ppi_edges)
-    entropy_score = bayesian_entropy_metric(deg_df, logfc_col)
-    multiomics_index = multiomics_integration_index(deg_df, logfc_col)
-    fig_ode, growth_rate = time_series_ode_model(deg_df, logfc_col)
-    fig_network = publication_network_plot(ppi_edges)
+def run_biomath_layer(
+        deg_df,
+        gene_col,
+        logfc_col,
+        pval_col,
+        ppi_edges=None
+):
 
-    deg_df["topology_score"] = topology_score
-    deg_df["bayesian_entropy"] = entropy_score
-    deg_df["multiomics_index"] = multiomics_index
-    deg_df["ode_growth_rate"] = growth_rate
+    df = deg_df.copy()
 
-    figures = []
-    if fig_ode is not None:
-        figures.append(fig_ode)
-    if fig_network is not None:
-        figures.append(fig_network)
+    df = gene_importance_score(df, logfc_col, pval_col)
 
-    deg_df.attrs["advanced_figures"] = figures
+    df, stability = system_stability_score(df, logfc_col)
 
-    return deg_df
+    df, prob = gene_probability_distribution(df, logfc_col)
+
+    entropy_score = system_entropy(prob)
+
+    df, centrality = network_influence_score(
+        ppi_edges,
+        df,
+        gene_col
+    )
+
+    perturb = perturbation_magnitude(df, logfc_col)
+
+    biomath_metrics = {
+
+        "system_entropy": entropy_score,
+
+        "system_stability": stability,
+
+        "network_centrality": centrality,
+
+        "perturbation_magnitude": perturb
+
+    }
+
+    return df, biomath_metrics
+    
