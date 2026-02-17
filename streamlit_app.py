@@ -24,7 +24,8 @@ from pyvis.network import Network
 import warnings
 warnings.filterwarnings("ignore")
 from pipeline_bridge import BioPipelineBridge
-from biomath.bridge import BioPipelineBridge
+from biomath_layer import BioPipelineBridge
+
 
 
 
