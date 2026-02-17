@@ -49,15 +49,14 @@ def download_figure(fig, name):
 
 
 
-tabs = st.tabs([
-    "DEG Upload",
-    "Tab1",
-    "Tab2",
-    "Tab3",
-    "Tab4",
-    "Tab5",
-    "Tab6",
-    "Integrated Systems Biology"
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "Upload",
+    "Preprocess",
+    "DEG Analysis",
+    "Network",
+    "Hub Genes",
+    "BioMath Layer",
+    "Scientific Interpretation"
 ])
 
 # =====================================================
@@ -485,101 +484,56 @@ with tabs[5]:
 # TAB 6 — Integrated Systems Biology
 # ==============================
 
+# =========================================================
+# TAB 6 — BIOMATH LAYER
+# =========================================================
+
+import warnings
+warnings.filterwarnings("ignore")
+
 with tab6:
 
-    st.header("🧬 Integrated Systems Biology Interpretation")
+    st.header("📊 BioMath Systems Layer")
 
-    if "df_deg" not in st.session_state:
+    try:
 
-        st.warning("Please upload and process DEG data first.")
+        if "deg_df" not in st.session_state:
 
-    else:
+            st.info("Run DEG Analysis first.")
 
-        df_deg = st.session_state["df_deg"]
+        else:
 
-        st.subheader("Preview of DEG Data")
+            if st.button("Run BioMath Analysis"):
 
-        st.dataframe(df_deg.head())
+                from pipeline_bridge import BioPipelineBridge
 
-        if st.button("Run BioMath Layer Analysis"):
+                with st.spinner("Running Systems Biology Engine..."):
 
-            try:
+                    bridge = BioPipelineBridge()
 
-                from biomath_layer import BioMathLayer
+                    result = bridge.run_pipeline(
 
-                # Clean data
-                df_deg = df_deg.dropna()
+                        deg_df=st.session_state["deg_df"],
 
-                df_deg = df_deg[df_deg["pvalue"] > 0]
+                        gene_col="gene",
 
-                biomath = BioMathLayer(df_deg)
+                        logfc_col="logFC",
 
-                biomath_results = biomath.run_all()
+                        pval_col="pvalue",
 
-                # STORE EVERYTHING SAFELY
-                st.session_state["biomath_results"] = biomath_results
+                        ppi_df=st.session_state.get("ppi_df", None),
 
-                st.session_state["gene_metrics"] = biomath_results.get(
-                    "gene_metrics", None
-                )
+                        hub_df=st.session_state.get("hub_df", None)
 
-                st.session_state["hub_genes"] = biomath_results.get(
-                    "hub_genes", None
-                )
-
-                st.session_state["system_metrics"] = biomath_results.get(
-                    "system_metrics", None
-                )
-
-                st.success("BioMath Analysis Completed")
-
-                # =====================
-                # DISPLAY RESULTS
-                # =====================
-
-                st.subheader("🧠 BioMath Gene-Level Results")
-
-                if st.session_state["gene_metrics"] is not None:
-
-                    st.dataframe(st.session_state["gene_metrics"].head())
-
-                st.subheader("📊 Systems Level Metrics")
-
-                system_metrics = st.session_state["system_metrics"]
-
-                if system_metrics is not None:
-
-                    col1, col2, col3, col4 = st.columns(4)
-
-                    col1.metric(
-                        "System Entropy",
-                        round(system_metrics["entropy"], 4),
                     )
 
-                    col2.metric(
-                        "System Stability",
-                        round(system_metrics["stability"], 4),
-                    )
+                    st.session_state["pipeline_result"] = result
 
-                    col3.metric(
-                        "Network Centrality",
-                        round(system_metrics["centrality"], 4),
-                    )
+                st.success("BioMath Layer Completed Successfully")
 
-                    col4.metric(
-                        "Perturbation Magnitude",
-                        round(system_metrics["perturbation"], 4),
-                    )
+    except Exception:
 
-                st.subheader("🧬 Hub Genes")
-
-                if st.session_state["hub_genes"] is not None:
-
-                    st.dataframe(st.session_state["hub_genes"])
-
-            except Exception as e:
-
-                st.error(f"BioMath Layer Error: {e}")
+        st.error("BioMath Layer Failed")
 
 
 # ==============================
@@ -590,77 +544,52 @@ with tab6:
 # TAB 7 — Scientific Interpretation Engine
 # ==============================
 
+# =========================================================
+# TAB 7 — INTERPRETATION ENGINE
+# =========================================================
+
+import warnings
+warnings.filterwarnings("ignore")
+
 with tab7:
 
     st.header("🧠 Scientific Interpretation Engine")
 
-    if "biomath_results" not in st.session_state:
+    try:
 
-        st.warning("Please run BioMath Layer first in Tab 6.")
+        if "pipeline_result" not in st.session_state:
 
-    else:
+            st.info("Run BioMath Layer first.")
 
-        if st.button("Generate Scientific Interpretation"):
+        else:
 
-            try:
+            if st.button("Generate Scientific Interpretation"):
 
-                from interpretation_engine import InterpretationEngine, InterpretationInput
+                with st.spinner("Generating Manuscript..."):
 
+                    report = st.session_state["pipeline_result"]["report"]
 
-                # Retrieve stored data
-                biomath_results = st.session_state["biomath_results"]
+                st.success("Scientific Manuscript Generated")
 
-                deg_table = st.session_state["df_deg"]
+                st.subheader("📜 Manuscript-Ready Report")
 
-                hub_genes = biomath_results.get("hub_genes", None)
+                st.write(report)
 
-                system_metrics = biomath_results.get("system_metrics", {})
-
-
-                # Create proper input object
-                input_data = InterpretationInput(
-
-                    deg_table=deg_table,
-
-                    biomath_metrics=system_metrics,
-
-                    hub_genes=hub_genes
-
-                )
-
-
-                # Run engine
-                engine = InterpretationEngine(input_data)
-
-                report = engine.generate()
-
-
-                st.success("Interpretation Generated Successfully")
-
-                st.subheader("📜 Manuscript-Ready Interpretation")
-
-
-                # Display ONLY manuscript text
-                st.write(report["text_report"])
-
-
-                # Download button
                 st.download_button(
 
-                    label="Download Interpretation Report",
+                    label="Download Report",
 
-                    data=report["text_report"],
+                    data=report,
 
-                    file_name="PhoenixBioInfoSys_DEG_Interpretation.txt",
+                    file_name="PhoenixBioInfoSys_Report.txt",
 
                     mime="text/plain"
 
                 )
 
+    except Exception:
 
-            except Exception as e:
-
-                st.error(f"Interpretation Engine Error: {e}")
+        st.error("Interpretation Engine Failed")
 
 
 # ==================================================
