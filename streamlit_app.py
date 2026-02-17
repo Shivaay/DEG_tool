@@ -24,7 +24,8 @@ from pyvis.network import Network
 import warnings
 warnings.filterwarnings("ignore")
 from biomath_layer import run_biomath_layer
-from interpretation_engine import InterpretationInput, InterpretationEngine
+from interpretation_engine import InterpretationEngine
+
 
 
 
