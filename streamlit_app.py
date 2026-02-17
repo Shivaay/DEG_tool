@@ -64,14 +64,23 @@ tabs = st.tabs([
 # ==================================================
 with tabs[0]:
 
+    st.header("📂 Differential Expression Upload & Filtering")
+
+    # --------------------------------------------------
+    # File Upload
+    # --------------------------------------------------
     uploaded = st.file_uploader(
         "Upload DEG table (CSV / TSV / XLSX)",
         type=["csv", "tsv", "xlsx"]
     )
 
     if uploaded is None:
+        st.info("Please upload a DEG file to continue.")
         st.stop()
 
+    # --------------------------------------------------
+    # Load Data
+    # --------------------------------------------------
     @st.cache_data
     def load_data(f):
         if f.name.endswith(".csv"):
@@ -84,9 +93,9 @@ with tabs[0]:
     df = load_data(uploaded)
     st.success(f"Loaded {df.shape[0]} genes")
 
-    # -------------------------------
+    # --------------------------------------------------
     # Column Mapping
-    # -------------------------------
+    # --------------------------------------------------
     st.sidebar.header("Column Mapping")
     gene_col = st.sidebar.selectbox("Gene column", df.columns)
     logfc_col = st.sidebar.selectbox("logFC column", df.columns)
@@ -96,17 +105,17 @@ with tabs[0]:
     df[pval_col] = pd.to_numeric(df[pval_col], errors="coerce")
     df = df.dropna(subset=[gene_col, logfc_col, pval_col])
 
-    # -------------------------------
+    # --------------------------------------------------
     # Threshold Selection
-    # -------------------------------
+    # --------------------------------------------------
     st.sidebar.header("Thresholds")
     neg_fc = st.sidebar.slider("Negative logFC", -10.0, 0.0, -1.0)
     pos_fc = st.sidebar.slider("Positive logFC", 0.0, 10.0, 1.0)
     p_cut = st.sidebar.slider("p-value cutoff", 0.0001, 0.1, 0.05)
 
-    # -------------------------------
+    # --------------------------------------------------
     # DEG Filtering
-    # -------------------------------
+    # --------------------------------------------------
     df["Regulation"] = "Neutral"
 
     df.loc[
@@ -121,71 +130,83 @@ with tabs[0]:
 
     deg = df[df["Regulation"] != "Neutral"].copy()
 
+    # Store DEG in session for Tab 7
+    st.session_state["deg"] = deg
+
+    # --------------------------------------------------
+    # DEG Gene Lists
+    # --------------------------------------------------
     up_genes = deg[deg["Regulation"] == "Up"][gene_col].astype(str).tolist()
     down_genes = deg[deg["Regulation"] == "Down"][gene_col].astype(str).tolist()
-    genes = deg[gene_col].astype(str).tolist()
 
-    # -------------------------------
-    # DEG Metrics
-    # -------------------------------
+    # --------------------------------------------------
+    # Metrics
+    # --------------------------------------------------
     col1, col2, col3 = st.columns(3)
 
     col1.metric("Total DEGs", len(deg))
     col2.metric("Upregulated", len(up_genes))
     col3.metric("Downregulated", len(down_genes))
 
-    # -------------------------------
-    # NEW FEATURE 1 — Show Filtered Table
-    # -------------------------------
-    st.subheader("Filtered DEG Results")
-    st.dataframe(deg, use_container_width=True)
+    # --------------------------------------------------
+    # Show Filtered Table
+    # --------------------------------------------------
+    st.subheader("📊 Filtered DEG Results")
 
-    # -------------------------------
-    # NEW FEATURE 2 — Download Buttons
-    # -------------------------------
+    if len(deg) > 0:
+        st.dataframe(deg, use_container_width=True)
+    else:
+        st.warning("No genes passed the selected thresholds.")
 
-    # CSV Downloads
-    st.download_button(
-        "Download Filtered DEG (CSV)",
-        deg.to_csv(index=False),
-        "filtered_deg.csv",
-        mime="text/csv"
-    )
+    # --------------------------------------------------
+    # Download Section
+    # --------------------------------------------------
+    if len(deg) > 0:
 
-    st.download_button(
-        "Download Upregulated Genes (CSV)",
-        deg[deg["Regulation"] == "Up"].to_csv(index=False),
-        "upregulated_genes.csv",
-        mime="text/csv"
-    )
+        st.markdown("### ⬇ Download Results")
 
-    st.download_button(
-        "Download Downregulated Genes (CSV)",
-        deg[deg["Regulation"] == "Down"].to_csv(index=False),
-        "downregulated_genes.csv",
-        mime="text/csv"
-    )
+        # CSV Downloads
+        st.download_button(
+            "Download Filtered DEG (CSV)",
+            deg.to_csv(index=False),
+            "filtered_deg.csv",
+            mime="text/csv"
+        )
 
-    # Excel Download
-    import io
+        st.download_button(
+            "Download Upregulated Genes (CSV)",
+            deg[deg["Regulation"] == "Up"].to_csv(index=False),
+            "upregulated_genes.csv",
+            mime="text/csv"
+        )
 
-    excel_buffer = io.BytesIO()
+        st.download_button(
+            "Download Downregulated Genes (CSV)",
+            deg[deg["Regulation"] == "Down"].to_csv(index=False),
+            "downregulated_genes.csv",
+            mime="text/csv"
+        )
 
-    with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
-        deg.to_excel(writer, sheet_name="All_DEG", index=False)
-        deg[deg["Regulation"] == "Up"].to_excel(writer, sheet_name="Upregulated", index=False)
-        deg[deg["Regulation"] == "Down"].to_excel(writer, sheet_name="Downregulated", index=False)
+        # Excel Download (Cloud-safe using openpyxl)
+        import io
 
-    st.download_button(
-        "Download DEG (Excel)",
-        excel_buffer.getvalue(),
-        "deg_results.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+        excel_buffer = io.BytesIO()
 
-# -------------------------------
-# Bridge Initialization
-# -------------------------------
+        with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+            deg.to_excel(writer, sheet_name="All_DEG", index=False)
+            deg[deg["Regulation"] == "Up"].to_excel(writer, sheet_name="Upregulated", index=False)
+            deg[deg["Regulation"] == "Down"].to_excel(writer, sheet_name="Downregulated", index=False)
+
+        st.download_button(
+            "Download DEG (Excel)",
+            excel_buffer.getvalue(),
+            "deg_results.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+# --------------------------------------------------
+# Bridge Initialization (Outside Tabs)
+# --------------------------------------------------
 bridge = BioPipelineBridge()
 
 # ==================================================
@@ -372,33 +393,46 @@ with tabs[7]:
 
     st.header("🧠 Integrated Systems Biology Engine")
 
+    # --------------------------------------------------
+    # SAFETY CHECK — Ensure DEG Exists
+    # --------------------------------------------------
+    if st.session_state.get("deg") is None:
+        st.warning("⚠ Please complete DEG filtering in Tab 0 first.")
+        st.stop()
+
+    # --------------------------------------------------
+    # RUN PIPELINE
+    # --------------------------------------------------
     if st.checkbox("Enable BioMathematical + Interpretation Pipeline"):
 
         if st.button("Run Integrated Analysis"):
 
-            results = bridge.run_full_pipeline(
-                deg_df = deg,
-                gene_col = gene_col,
-                logfc_col = logfc_col,
-                pval_col = pval_col,
-                ppi_df = ppi,
-                enrichment_up = up_en,
-                enrichment_down = down_en,
-                mirna_df = mir,
-                tf_df = tf_df,
-                hub_df = hub
-            )
+            try:
 
-            st.session_state["biomath_df"] = results["biomath_deg"]
-            st.session_state["interpretation"] = results["interpretation"]
+                results = bridge.run_full_pipeline(
+                    deg_df = st.session_state.get("deg"),
+                    gene_col = gene_col,
+                    logfc_col = logfc_col,
+                    pval_col = pval_col,
+                    ppi_df = ppi,
+                    enrichment_up = up_en,
+                    enrichment_down = down_en,
+                    mirna_df = mir,
+                    tf_df = tf_df,
+                    hub_df = hub
+                )
 
-            st.success("✅ Integrated Analysis Completed")
+                st.session_state["biomath_df"] = results.get("biomath_deg")
+                st.session_state["interpretation"] = results.get("interpretation")
 
+                st.success("✅ Integrated Analysis Completed")
 
-    # =====================================================
+            except Exception as e:
+                st.error(f"Pipeline Error: {e}")
+
+    # --------------------------------------------------
     # DISPLAY BIOMATH RESULTS
-    # =====================================================
-
+    # --------------------------------------------------
     biomath_df = st.session_state.get("biomath_df")
 
     if biomath_df is not None:
@@ -407,37 +441,46 @@ with tabs[7]:
 
         st.dataframe(biomath_df, use_container_width=True)
 
-        # ---- Advanced Metrics Summary ----
+        # -------- Systems Metrics --------
         st.markdown("### 📊 Systems-Level Metrics")
 
-        col1, col2, col3, col4 = st.columns(4)
+        metric_cols = st.columns(4)
 
-        col1.metric("Topology Score",
-                    round(biomath_df["topology_score"].iloc[0], 4))
+        try:
+            metric_cols[0].metric(
+                "Topology Score",
+                round(float(biomath_df.get("topology_score", [0])[0]), 4)
+            )
 
-        col2.metric("Bayesian Entropy",
-                    round(biomath_df["bayesian_entropy"].iloc[0], 4))
+            metric_cols[1].metric(
+                "Bayesian Entropy",
+                round(float(biomath_df.get("bayesian_entropy", [0])[0]), 4)
+            )
 
-        col3.metric("Multi-Omics Index",
-                    round(biomath_df["multiomics_index"].iloc[0], 4))
+            metric_cols[2].metric(
+                "Multi-Omics Index",
+                round(float(biomath_df.get("multiomics_index", [0])[0]), 4)
+            )
 
-        col4.metric("ODE Growth Rate",
-                    round(biomath_df["ode_growth_rate"].iloc[0], 4))
+            metric_cols[3].metric(
+                "ODE Growth Rate",
+                round(float(biomath_df.get("ode_growth_rate", [0])[0]), 4)
+            )
 
+        except:
+            st.info("Advanced metrics not available.")
 
-        # ---- Advanced Figures ----
-        if "advanced_figures" in biomath_df.attrs:
+        # -------- Figures --------
+        if hasattr(biomath_df, "attrs") and "advanced_figures" in biomath_df.attrs:
 
             st.markdown("### 📈 Systems Modeling Visualizations")
 
             for fig in biomath_df.attrs["advanced_figures"]:
                 st.pyplot(fig)
 
-
-    # =====================================================
+    # --------------------------------------------------
     # DISPLAY INTERPRETATION RESULTS
-    # =====================================================
-
+    # --------------------------------------------------
     interpretation = st.session_state.get("interpretation")
 
     if interpretation is not None:
@@ -446,16 +489,16 @@ with tabs[7]:
 
         if isinstance(interpretation, dict):
 
+            # ---- Text Report ----
             if "text_report" in interpretation:
-
                 st.text_area(
                     "Interpretation Report",
                     interpretation["text_report"],
                     height=400
                 )
 
-            # Optional: If interpretation has figures
-            if "figures" in interpretation:
+            # ---- Interpretation Figures ----
+            if "figures" in interpretation and interpretation["figures"]:
 
                 st.markdown("### 📊 Interpretation Visuals")
 
@@ -470,7 +513,6 @@ with tabs[7]:
                 height=400
             )
 
-    
 # ==================================================
 # METADATA
 # ==================================================
