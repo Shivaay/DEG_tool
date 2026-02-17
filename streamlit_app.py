@@ -488,55 +488,90 @@ with tabs[6]:
 # ==================================================
 # TAB 7 — Scientific Interpretation Engine
 # ==================================================
+# ==================================================
+# TAB 7 — Scientific Interpretation Engine
+# ==================================================
 with tabs[7]:
 
-    st.header("Scientific Interpretation Engine")
+    st.header("🧠 Scientific Interpretation Engine")
 
+    # Check BioMath results exist
     if "biomath_results" not in st.session_state:
 
-        st.error("Run BioMath Engine first")
+        st.error("Please run BioMath Engine first in Tab 5.")
 
         st.stop()
 
 
+    # Button to generate interpretation
     if st.button("Generate Scientific Interpretation"):
 
         try:
 
+            # Import engine and input class
+            from interpretation_engine import (
+                InterpretationEngine,
+                InterpretationInput
+            )
+
+
+            # Retrieve BioMath results
             biomath_results = st.session_state["biomath_results"]
 
-            engine = InterpretationEngine(
 
-                biomath_results
+            gene_metrics = biomath_results["gene_metrics"]
+
+            system_metrics = biomath_results["system_metrics"]
+
+            hub_genes = biomath_results["hub_genes"]
+
+
+            # Create correct input object
+            input_data = InterpretationInput(
+
+                deg_table = gene_metrics,
+
+                biomath_metrics = system_metrics,
+
+                hub_genes = hub_genes
 
             )
 
+
+            # Run interpretation engine
+            engine = InterpretationEngine(input_data)
 
             report = engine.generate()
 
 
-            st.success("Interpretation Generated")
+            # Show success
+            st.success("Scientific Interpretation Generated Successfully")
 
 
-            st.subheader("Manuscript Ready Output")
+            # Show manuscript text
+            st.subheader("📜 Manuscript-Ready Interpretation")
 
             st.write(report["text_report"])
 
 
+            # Download button
             st.download_button(
 
-                "Download Report",
+                label = "Download Interpretation Report",
 
-                report["text_report"],
+                data = report["text_report"],
 
-                "interpretation.txt"
+                file_name = "PhoenixBioInfoSys_Interpretation.txt",
+
+                mime = "text/plain"
 
             )
 
 
-        except Exception as e:
+        except Exception:
 
-            st.error(str(e))
+            # Hide technical error from client
+            st.error("Interpretation Engine Failed. Please verify BioMath results.")
 
 # ==================================================
 # METADATA (SAFE)
