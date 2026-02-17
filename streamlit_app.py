@@ -98,6 +98,52 @@ with tabs[0]:
     p_cut = st.sidebar.slider("p-value cutoff", 0.0001, 0.1, 0.05)
 
     df["Regulation"] = "Neutral"
+    # ============================================
+# NEW FEATURE 1 — Display Filtered DEG Table
+# ============================================
+st.subheader("Filtered DEG Results")
+st.dataframe(deg)
+
+# ============================================
+# NEW FEATURE 2 — Download Buttons
+# ============================================
+
+# CSV downloads
+st.download_button(
+    "Download Filtered DEG (CSV)",
+    deg.to_csv(index=False),
+    "filtered_deg.csv",
+    mime="text/csv"
+)
+
+st.download_button(
+    "Download Upregulated Genes (CSV)",
+    deg[deg["Regulation"]=="Up"].to_csv(index=False),
+    "upregulated_genes.csv",
+    mime="text/csv"
+)
+
+st.download_button(
+    "Download Downregulated Genes (CSV)",
+    deg[deg["Regulation"]=="Down"].to_csv(index=False),
+    "downregulated_genes.csv",
+    mime="text/csv"
+)
+
+# Excel download
+excel_buffer = io.BytesIO()
+with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
+    deg.to_excel(writer, sheet_name="All_DEG", index=False)
+    deg[deg["Regulation"]=="Up"].to_excel(writer, sheet_name="Upregulated", index=False)
+    deg[deg["Regulation"]=="Down"].to_excel(writer, sheet_name="Downregulated", index=False)
+
+st.download_button(
+    "Download DEG (Excel)",
+    excel_buffer.getvalue(),
+    "deg_results.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
+
     df.loc[(df[logfc_col] >= pos_fc) & (df[pval_col] <= p_cut), "Regulation"] = "Up"
     df.loc[(df[logfc_col] <= neg_fc) & (df[pval_col] <= p_cut), "Regulation"] = "Down"
 
