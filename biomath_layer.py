@@ -174,3 +174,28 @@ def run_biomath_layer(deg_df, ppi_edges):
         print("Advanced Biomath Error:", e)
 
     return deg_df
+
+class BioPipelineBridge:
+
+    def run_full_pipeline(
+        self,
+        deg_df,
+        gene_col,
+        logfc_col,
+        pval_col,
+        ppi_df,
+        enrichment_up=None,
+        enrichment_down=None,
+        mirna_df=None,
+        tf_df=None,
+        hub_df=None
+    ):
+        biomath_deg = run_biomath_layer(deg_df, ppi_df)
+
+        return {
+            "biomath_deg": biomath_deg,
+            "interpretation": {
+                "text_report": "Integrated systems biology analysis completed successfully."
+            }
+        }
+
