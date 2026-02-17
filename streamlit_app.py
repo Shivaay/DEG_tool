@@ -76,13 +76,17 @@ with tabs[0]:
     def load_data(f):
         if f.name.endswith(".csv"):
             return pd.read_csv(f)
-        if f.name.endswith(".tsv"):
+        elif f.name.endswith(".tsv"):
             return pd.read_csv(f, sep="\t")
-        return pd.read_excel(f)
+        else:
+            return pd.read_excel(f)
 
     df = load_data(uploaded)
     st.success(f"Loaded {df.shape[0]} genes")
 
+    # -------------------------------
+    # Column Mapping
+    # -------------------------------
     st.sidebar.header("Column Mapping")
     gene_col = st.sidebar.selectbox("Gene column", df.columns)
     logfc_col = st.sidebar.selectbox("logFC column", df.columns)
@@ -92,70 +96,96 @@ with tabs[0]:
     df[pval_col] = pd.to_numeric(df[pval_col], errors="coerce")
     df = df.dropna(subset=[gene_col, logfc_col, pval_col])
 
+    # -------------------------------
+    # Threshold Selection
+    # -------------------------------
     st.sidebar.header("Thresholds")
     neg_fc = st.sidebar.slider("Negative logFC", -10.0, 0.0, -1.0)
     pos_fc = st.sidebar.slider("Positive logFC", 0.0, 10.0, 1.0)
     p_cut = st.sidebar.slider("p-value cutoff", 0.0001, 0.1, 0.05)
 
+    # -------------------------------
+    # DEG Filtering
+    # -------------------------------
     df["Regulation"] = "Neutral"
-    # ============================================
-# NEW FEATURE 1 — Display Filtered DEG Table
-# ============================================
-st.subheader("Filtered DEG Results")
-st.dataframe(deg)
 
-# ============================================
-# NEW FEATURE 2 — Download Buttons
-# ============================================
+    df.loc[
+        (df[logfc_col] >= pos_fc) & (df[pval_col] <= p_cut),
+        "Regulation"
+    ] = "Up"
 
-# CSV downloads
-st.download_button(
-    "Download Filtered DEG (CSV)",
-    deg.to_csv(index=False),
-    "filtered_deg.csv",
-    mime="text/csv"
-)
+    df.loc[
+        (df[logfc_col] <= neg_fc) & (df[pval_col] <= p_cut),
+        "Regulation"
+    ] = "Down"
 
-st.download_button(
-    "Download Upregulated Genes (CSV)",
-    deg[deg["Regulation"]=="Up"].to_csv(index=False),
-    "upregulated_genes.csv",
-    mime="text/csv"
-)
+    deg = df[df["Regulation"] != "Neutral"].copy()
 
-st.download_button(
-    "Download Downregulated Genes (CSV)",
-    deg[deg["Regulation"]=="Down"].to_csv(index=False),
-    "downregulated_genes.csv",
-    mime="text/csv"
-)
-
-# Excel download
-excel_buffer = io.BytesIO()
-with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
-    deg.to_excel(writer, sheet_name="All_DEG", index=False)
-    deg[deg["Regulation"]=="Up"].to_excel(writer, sheet_name="Upregulated", index=False)
-    deg[deg["Regulation"]=="Down"].to_excel(writer, sheet_name="Downregulated", index=False)
-
-st.download_button(
-    "Download DEG (Excel)",
-    excel_buffer.getvalue(),
-    "deg_results.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
-
-    df.loc[(df[logfc_col] >= pos_fc) & (df[pval_col] <= p_cut), "Regulation"] = "Up"
-    df.loc[(df[logfc_col] <= neg_fc) & (df[pval_col] <= p_cut), "Regulation"] = "Down"
-
-    deg = df[df["Regulation"] != "Neutral"]
     up_genes = deg[deg["Regulation"] == "Up"][gene_col].astype(str).tolist()
     down_genes = deg[deg["Regulation"] == "Down"][gene_col].astype(str).tolist()
     genes = deg[gene_col].astype(str).tolist()
 
-    st.metric("Total DEGs", len(deg))
-    st.metric("Upregulated", len(up_genes))
-    st.metric("Downregulated", len(down_genes))
+    # -------------------------------
+    # DEG Metrics
+    # -------------------------------
+    col1, col2, col3 = st.columns(3)
 
+    col1.metric("Total DEGs", len(deg))
+    col2.metric("Upregulated", len(up_genes))
+    col3.metric("Downregulated", len(down_genes))
+
+    # -------------------------------
+    # NEW FEATURE 1 — Show Filtered Table
+    # -------------------------------
+    st.subheader("Filtered DEG Results")
+    st.dataframe(deg, use_container_width=True)
+
+    # -------------------------------
+    # NEW FEATURE 2 — Download Buttons
+    # -------------------------------
+
+    # CSV Downloads
+    st.download_button(
+        "Download Filtered DEG (CSV)",
+        deg.to_csv(index=False),
+        "filtered_deg.csv",
+        mime="text/csv"
+    )
+
+    st.download_button(
+        "Download Upregulated Genes (CSV)",
+        deg[deg["Regulation"] == "Up"].to_csv(index=False),
+        "upregulated_genes.csv",
+        mime="text/csv"
+    )
+
+    st.download_button(
+        "Download Downregulated Genes (CSV)",
+        deg[deg["Regulation"] == "Down"].to_csv(index=False),
+        "downregulated_genes.csv",
+        mime="text/csv"
+    )
+
+    # Excel Download
+    import io
+
+    excel_buffer = io.BytesIO()
+
+    with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
+        deg.to_excel(writer, sheet_name="All_DEG", index=False)
+        deg[deg["Regulation"] == "Up"].to_excel(writer, sheet_name="Upregulated", index=False)
+        deg[deg["Regulation"] == "Down"].to_excel(writer, sheet_name="Downregulated", index=False)
+
+    st.download_button(
+        "Download DEG (Excel)",
+        excel_buffer.getvalue(),
+        "deg_results.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+# -------------------------------
+# Bridge Initialization
+# -------------------------------
 bridge = BioPipelineBridge()
 
 # ==================================================
