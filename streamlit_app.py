@@ -479,117 +479,246 @@ with tabs[5]:
 # ==================================================
 # TAB 6 — EXPORT (PDF UNCHANGED)
 # ==================================================
+# TAB 6 — EXPORT & REPORT GENERATION
+# ==================================================
 with tabs[6]:
 
     st.header("📤 Export & Reports")
 
-    if st.session_state.get("biomath_df") is None:
-        st.warning("⚠ Run Biomath Analysis in Tab 5 first.")
+    biomath_df = st.session_state.get("biomath_df")
+    biomath_metrics = st.session_state.get("biomath_metrics")
+
+    if biomath_df is None or biomath_metrics is None:
+
+        st.warning("⚠ Please run BioMathematical Analysis in Tab 5 first.")
         st.stop()
 
-    # ---- DO NOT CHANGE (As Requested) ----
-    if st.button("Generate PDF Report"):
+
+    # -------------------------------
+    # DOWNLOAD BIOMATH TABLE
+    # -------------------------------
+
+    st.subheader("Download BioMath Table")
+
+    st.download_button(
+
+        "Download BioMath Results (CSV)",
+
+        biomath_df.to_csv(index=False),
+
+        "biomath_results.csv",
+
+        mime="text/csv"
+
+    )
+
+
+    # -------------------------------
+    # DOWNLOAD METRICS
+    # -------------------------------
+
+    st.subheader("Download Systems Metrics")
+
+    metrics_df = pd.DataFrame(
+
+        list(biomath_metrics.items()),
+
+        columns=["Metric", "Value"]
+
+    )
+
+    st.download_button(
+
+        "Download Systems Metrics (CSV)",
+
+        metrics_df.to_csv(index=False),
+
+        "systems_metrics.csv",
+
+        mime="text/csv"
+
+    )
+
+
+    # -------------------------------
+    # PDF EXPORT
+    # -------------------------------
+
+    st.subheader("Generate PDF Report")
+
+    if st.button("Generate PDF"):
+
         buffer = io.BytesIO()
+
         with PdfPages(buffer) as pdf:
+
             for name, fig in ALL_FIGURES:
+
                 pdf.savefig(fig)
 
         st.download_button(
-            "Download Full PDF",
+
+            "Download PDF Report",
+
             buffer.getvalue(),
-            "Phoenix_Report.pdf"
+
+            "PhoenixBioInfoSys_Report.pdf",
+
+            mime="application/pdf"
+
         )
 
-    if st.checkbox("Generate Interpretation Report"):
-        st.info("Interpretation report ready in Tab 7.")
 
+    st.success("Export module ready.")
 
 # ==================================================
-# TAB 7 — INTERPRETATION & SYSTEMS DASHBOARD
+# TAB 7 — INTERPRETATION ENGINE
 # ==================================================
 with tabs[7]:
 
-    st.header("🧠 Integrated Systems Biology Dashboard")
+    st.header("🧠 Integrated Systems Biology Interpretation")
 
     biomath_df = st.session_state.get("biomath_df")
 
-    if biomath_df is None:
-        st.warning("⚠ Run Biomath Analysis in Tab 5 first.")
+    biomath_metrics = st.session_state.get("biomath_metrics")
+
+    hub_df = ALL_TABLES.get("HubGenes")
+
+
+    if biomath_df is None or biomath_metrics is None:
+
+        st.warning("⚠ Please run BioMathematical Analysis in Tab 5 first.")
+
         st.stop()
 
-    # --------------------------------------------------
-    # DISPLAY BIOMATH RESULTS
-    # --------------------------------------------------
-    st.subheader("🔬 BioMathematical Results")
-    st.dataframe(biomath_df, use_container_width=True)
 
-    # --------------------------------------------------
-    # SYSTEMS METRICS
-    # --------------------------------------------------
-    st.markdown("### 📊 Systems-Level Metrics")
+    # -------------------------------
+    # SHOW BIOMATH RESULTS
+    # -------------------------------
 
-    metric_cols = st.columns(4)
+    st.subheader("BioMath Gene-Level Results")
 
-    try:
-        metric_cols[0].metric(
-            "Topology Score",
-            round(float(biomath_df.get("topology_score", [0])[0]), 4)
-        )
+    st.dataframe(
 
-        metric_cols[1].metric(
-            "Bayesian Entropy",
-            round(float(biomath_df.get("bayesian_entropy", [0])[0]), 4)
-        )
+        biomath_df,
 
-        metric_cols[2].metric(
-            "Multi-Omics Index",
-            round(float(biomath_df.get("multiomics_index", [0])[0]), 4)
-        )
+        use_container_width=True
 
-        metric_cols[3].metric(
-            "ODE Growth Rate",
-            round(float(biomath_df.get("ode_growth_rate", [0])[0]), 4)
-        )
+    )
 
-    except:
-        st.info("Advanced metrics not available.")
 
-    # --------------------------------------------------
-    # FIGURES
-    # --------------------------------------------------
-    if hasattr(biomath_df, "attrs") and "advanced_figures" in biomath_df.attrs:
+    # -------------------------------
+    # SHOW SYSTEM METRICS
+    # -------------------------------
 
-        st.markdown("### 📈 Systems Modeling Visualizations")
+    st.subheader("Systems Level Metrics")
 
-        for fig in biomath_df.attrs["advanced_figures"]:
-            st.pyplot(fig)
+    col1, col2, col3, col4 = st.columns(4)
 
-    # --------------------------------------------------
-    # INTERPRETATION
-    # --------------------------------------------------
-    interpretation = st.session_state.get("interpretation")
+    col1.metric(
 
-    biomath_metrics = st.session_state.get("biomath_metrics")
-    hub_df = ALL_TABLES.get("HubGenes")
+        "System Entropy",
+
+        f"{biomath_metrics['system_entropy']:.4f}"
+
+    )
+
+    col2.metric(
+
+        "System Stability",
+
+        f"{biomath_metrics['system_stability']:.4f}"
+
+    )
+
+    col3.metric(
+
+        "Network Centrality",
+
+        f"{biomath_metrics['network_centrality']:.4f}"
+
+    )
+
+    col4.metric(
+
+        "Perturbation Magnitude",
+
+        f"{biomath_metrics['perturbation_magnitude']:.4f}"
+
+    )
+
+
+    # -------------------------------
+    # RUN INTERPRETATION ENGINE
+    # -------------------------------
+
+    from interpretation_engine import (
+
+        InterpretationInput,
+
+        InterpretationEngine
+
+    )
+
+
+    interpretation_input = InterpretationInput(
+
+        deg_table=biomath_df,
+
+        biomath_metrics=biomath_metrics,
+
+        hub_genes=hub_df
+
+    )
+
+
+    engine = InterpretationEngine(
+
+        interpretation_input
+
+    )
+
+
+    report = engine.generate()
+
+
+    # -------------------------------
+    # DISPLAY REPORT
+    # -------------------------------
+
+    st.subheader("Scientific Interpretation Report")
+
+    st.text_area(
+
+        "Manuscript-Ready Interpretation",
+
+        report,
+
+        height=500
+
+    )
+
+
+    # -------------------------------
+    # DOWNLOAD REPORT
+    # -------------------------------
+
+    st.download_button(
+
+        "Download Interpretation Report",
+
+        report,
+
+        "systems_interpretation.txt",
+
+        mime="text/plain"
+
+    )
+
+
+    st.success("Interpretation completed successfully.")
     
-    if biomath_metrics is not None:
-        input_data = InterpretationInput(
-            deg_table=biomath_df,
-            biomath_metrics=biomath_metrics,
-            hub_genes=hub_df
-        )
-        engine = InterpretationEngine(input_data)
-        report = engine.generate()
-        st.text_area(
-            "Scientific Interpretation Report",
-            report,
-            height=500
-        )
-
-else:
-
-    st.warning("Run biomath analysis first.")
-
+    
 
 # ==================================================
 # METADATA (SAFE)
