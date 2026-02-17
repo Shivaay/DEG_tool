@@ -26,8 +26,6 @@ warnings.filterwarnings("ignore")
 from biomath_layer import run_biomath_layer
 from interpretation_engine import InterpretationEngine
 
-from interpretation_engine import InterpretationEngine
-
 
 
 
@@ -588,6 +586,10 @@ with tab6:
 # TAB 7 — Interpretation Engine
 # ==============================
 
+# ==============================
+# TAB 7 — Scientific Interpretation Engine
+# ==============================
+
 with tab7:
 
     st.header("🧠 Scientific Interpretation Engine")
@@ -602,29 +604,52 @@ with tab7:
 
             try:
 
-                from interpretation_engine import InterpretationEngine
+                from interpretation_engine import InterpretationEngine, InterpretationInput
 
+
+                # Retrieve stored data
                 biomath_results = st.session_state["biomath_results"]
 
-                engine = InterpretationEngine(
+                deg_table = st.session_state["df_deg"]
 
-                    biomath_results=biomath_results
+                hub_genes = biomath_results.get("hub_genes", None)
+
+                system_metrics = biomath_results.get("system_metrics", {})
+
+
+                # Create proper input object
+                input_data = InterpretationInput(
+
+                    deg_table=deg_table,
+
+                    biomath_metrics=system_metrics,
+
+                    hub_genes=hub_genes
 
                 )
 
+
+                # Run engine
+                engine = InterpretationEngine(input_data)
+
                 report = engine.generate()
+
 
                 st.success("Interpretation Generated Successfully")
 
                 st.subheader("📜 Manuscript-Ready Interpretation")
 
-                st.write(report)
 
+                # Display ONLY manuscript text
+                st.write(report["text_report"])
+
+
+                # Download button
                 st.download_button(
 
                     label="Download Interpretation Report",
 
-                    data=report,
+                    data=report["text_report"],
 
                     file_name="PhoenixBioInfoSys_DEG_Interpretation.txt",
 
@@ -632,10 +657,11 @@ with tab7:
 
                 )
 
+
             except Exception as e:
 
                 st.error(f"Interpretation Engine Error: {e}")
-                
+
 
 # ==================================================
 # METADATA (SAFE)
