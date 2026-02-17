@@ -26,6 +26,7 @@ warnings.filterwarnings("ignore")
 from pipeline_bridge import BioPipelineBridge
 from biomath_layer import BioPipelineBridge
 from biomath_layer import run_biomath_layer
+from biomath_layer import run_biomath_layer
 
 
 
@@ -48,7 +49,7 @@ def download_figure(fig, name):
     st.download_button(f"Download {name} (300 DPI)", buf.getvalue(), f"{name}.png")
     ALL_FIGURES.append((name, fig))
 
-bridge = BioPipelineBridge()
+
 
 tabs = st.tabs([
     "DEG Upload",
