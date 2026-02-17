@@ -340,6 +340,8 @@ with tabs[6]:
 
 with tabs[7]:
 
+    st.header("🧠 Integrated Systems Biology Engine")
+
     if st.checkbox("Enable BioMathematical + Interpretation Pipeline"):
 
         if st.button("Run Integrated Analysis"):
@@ -360,23 +362,83 @@ with tabs[7]:
             st.session_state["biomath_df"] = results["biomath_deg"]
             st.session_state["interpretation"] = results["interpretation"]
 
-            st.success("Integrated Analysis Completed")
+            st.success("✅ Integrated Analysis Completed")
 
-    # ---------- DISPLAY OUTPUT ----------
-    if st.session_state.get("biomath_df") is not None:
 
-        st.subheader("BioMathematical Results")
-        st.dataframe(st.session_state["biomath_df"])
+    # =====================================================
+    # DISPLAY BIOMATH RESULTS
+    # =====================================================
 
-    if st.session_state.get("interpretation") is not None:
+    biomath_df = st.session_state.get("biomath_df")
 
-        st.subheader("Scientific Interpretation")
+    if biomath_df is not None:
 
-        st.text_area(
-            "Interpretation Report",
-            st.session_state["interpretation"]["text_report"],
-            height=400
-        )
+        st.subheader("🔬 BioMathematical Results")
+
+        st.dataframe(biomath_df, use_container_width=True)
+
+        # ---- Advanced Metrics Summary ----
+        st.markdown("### 📊 Systems-Level Metrics")
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        col1.metric("Topology Score",
+                    round(biomath_df["topology_score"].iloc[0], 4))
+
+        col2.metric("Bayesian Entropy",
+                    round(biomath_df["bayesian_entropy"].iloc[0], 4))
+
+        col3.metric("Multi-Omics Index",
+                    round(biomath_df["multiomics_index"].iloc[0], 4))
+
+        col4.metric("ODE Growth Rate",
+                    round(biomath_df["ode_growth_rate"].iloc[0], 4))
+
+
+        # ---- Advanced Figures ----
+        if "advanced_figures" in biomath_df.attrs:
+
+            st.markdown("### 📈 Systems Modeling Visualizations")
+
+            for fig in biomath_df.attrs["advanced_figures"]:
+                st.pyplot(fig)
+
+
+    # =====================================================
+    # DISPLAY INTERPRETATION RESULTS
+    # =====================================================
+
+    interpretation = st.session_state.get("interpretation")
+
+    if interpretation is not None:
+
+        st.subheader("🧬 Scientific Interpretation")
+
+        if isinstance(interpretation, dict):
+
+            if "text_report" in interpretation:
+
+                st.text_area(
+                    "Interpretation Report",
+                    interpretation["text_report"],
+                    height=400
+                )
+
+            # Optional: If interpretation has figures
+            if "figures" in interpretation:
+
+                st.markdown("### 📊 Interpretation Visuals")
+
+                for fig in interpretation["figures"]:
+                    st.pyplot(fig)
+
+        else:
+            # Fallback if interpretation is plain text
+            st.text_area(
+                "Interpretation Report",
+                str(interpretation),
+                height=400
+            )
 
     
 # ==================================================
