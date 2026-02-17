@@ -1,5 +1,5 @@
 # =========================================================
-# BIOMATH LAYER (FULLY STABLE VERSION)
+# BIOMATH LAYER (FINAL STABLE VERSION)
 # =========================================================
 
 import numpy as np
@@ -8,26 +8,6 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from scipy.integrate import odeint
 from sklearn.preprocessing import MinMaxScaler
-
-
-# =========================================================
-# SAFE COLUMN DETECTION
-# =========================================================
-
-def _detect_logfc_column(df):
-    possible = ["log2FC", "logFC", "log_fc", "logFoldChange", "LFC"]
-    for col in possible:
-        if col in df.columns:
-            return col
-    raise ValueError("No log fold-change column detected.")
-
-
-def _detect_gene_column(df):
-    possible = ["gene", "Gene", "GENE", "symbol", "GeneSymbol"]
-    for col in possible:
-        if col in df.columns:
-            return col
-    raise ValueError("No gene column detected.")
 
 
 # =========================================================
@@ -72,7 +52,10 @@ def network_influence_score(ppi_edges, deg_df, gene_col):
 
         G = nx.from_pandas_edgelist(ppi_edges, "source", "target")
         centrality = nx.degree_centrality(G)
-        deg_df["network_influence"] = deg_df[gene_col].map(centrality).fillna(0)
+
+        deg_df["network_influence"] = (
+            deg_df[gene_col].astype(str).map(centrality).fillna(0)
+        )
 
     except:
         deg_df["network_influence"] = 0
@@ -82,17 +65,17 @@ def network_influence_score(ppi_edges, deg_df, gene_col):
 
 def combined_biomath_score(deg_df):
     deg_df["biomath_score"] = (
-        deg_df.get("ga_score", 0) +
-        deg_df.get("mc_stability", 0) +
-        deg_df.get("fuzzy_score", 0) +
-        deg_df.get("bayesian_prob", 0) +
-        deg_df.get("network_influence", 0)
+        deg_df["ga_score"] +
+        deg_df["mc_stability"] +
+        deg_df["fuzzy_score"] +
+        deg_df["bayesian_prob"] +
+        deg_df["network_influence"]
     ) / 5
     return deg_df
 
 
 # =========================================================
-# ADVANCED SCIENTIFIC EXTENSIONS
+# ADVANCED EXTENSIONS
 # =========================================================
 
 def dynamic_topology_score(ppi_edges):
@@ -104,9 +87,7 @@ def dynamic_topology_score(ppi_edges):
             return 0
 
         G = nx.from_pandas_edgelist(ppi_edges, "source", "target")
-        density = nx.density(G)
-        clustering = nx.average_clustering(G)
-        return (density + clustering) / 2
+        return (nx.density(G) + nx.average_clustering(G)) / 2
 
     except:
         return 0
@@ -116,8 +97,7 @@ def bayesian_entropy_metric(deg_df, log_col):
     scaler = MinMaxScaler()
     norm = scaler.fit_transform(deg_df[[log_col]]).flatten()
     prob = norm / (np.sum(norm) + 1e-9)
-    entropy = -np.sum(prob * np.log2(prob + 1e-9))
-    return entropy
+    return -np.sum(prob * np.log2(prob + 1e-9))
 
 
 def multiomics_integration_index(deg_df, log_col):
@@ -134,10 +114,8 @@ def time_series_ode_model(deg_df, log_col):
     sol = odeint(ode_model, 0.1, t, args=(k,))
 
     fig, ax = plt.subplots(figsize=(6, 4))
-    ax.plot(t, sol, linewidth=2)
+    ax.plot(t, sol)
     ax.set_title("Time-Series ODE Transcriptomic Dynamics")
-    ax.set_xlabel("Time")
-    ax.set_ylabel("System State")
     ax.grid(True)
 
     return fig, k
@@ -156,15 +134,9 @@ def publication_network_plot(ppi_edges):
 
         fig = plt.figure(figsize=(6, 6))
         pos = nx.spring_layout(G, seed=42)
-        nx.draw(
-            G,
-            pos,
-            node_size=20,
-            edge_color="gray",
-            alpha=0.7,
-            with_labels=False
-        )
+        nx.draw(G, pos, node_size=20, edge_color="gray", alpha=0.7, with_labels=False)
         plt.title("Protein-Protein Interaction Network")
+
         return fig
 
     except:
@@ -172,50 +144,42 @@ def publication_network_plot(ppi_edges):
 
 
 # =========================================================
-# MAIN EXECUTION FUNCTION (SAFE VERSION)
+# MAIN PIPELINE
 # =========================================================
 
-def run_biomath_layer(deg_df, ppi_edges=None):
+def run_biomath_layer(deg_df, gene_col, logfc_col, ppi_edges=None):
 
     if deg_df is None or deg_df.empty:
         raise ValueError("DEG dataframe is empty.")
 
     deg_df = deg_df.copy()
 
-    # Detect required columns safely
-    log_col = _detect_logfc_column(deg_df)
-    gene_col = _detect_gene_column(deg_df)
-
-    # ===== CORE PIPELINE =====
-    deg_df = genetic_algorithm_score(deg_df, log_col)
+    # CORE
+    deg_df = genetic_algorithm_score(deg_df, logfc_col)
     deg_df = monte_carlo_stability(deg_df)
-    deg_df = fuzzy_model(deg_df, log_col)
-    deg_df = bayesian_probability(deg_df, log_col)
+    deg_df = fuzzy_model(deg_df, logfc_col)
+    deg_df = bayesian_probability(deg_df, logfc_col)
     deg_df = network_influence_score(ppi_edges, deg_df, gene_col)
     deg_df = combined_biomath_score(deg_df)
 
-    # ===== ADVANCED METRICS =====
-    try:
-        topology_score = dynamic_topology_score(ppi_edges)
-        entropy_score = bayesian_entropy_metric(deg_df, log_col)
-        multiomics_index = multiomics_integration_index(deg_df, log_col)
-        fig_ode, growth_rate = time_series_ode_model(deg_df, log_col)
-        fig_network = publication_network_plot(ppi_edges)
+    # ADVANCED
+    topology_score = dynamic_topology_score(ppi_edges)
+    entropy_score = bayesian_entropy_metric(deg_df, logfc_col)
+    multiomics_index = multiomics_integration_index(deg_df, logfc_col)
+    fig_ode, growth_rate = time_series_ode_model(deg_df, logfc_col)
+    fig_network = publication_network_plot(ppi_edges)
 
-        deg_df["topology_score"] = topology_score
-        deg_df["bayesian_entropy"] = entropy_score
-        deg_df["multiomics_index"] = multiomics_index
-        deg_df["ode_growth_rate"] = growth_rate
+    deg_df["topology_score"] = topology_score
+    deg_df["bayesian_entropy"] = entropy_score
+    deg_df["multiomics_index"] = multiomics_index
+    deg_df["ode_growth_rate"] = growth_rate
 
-        figures = []
-        if fig_ode is not None:
-            figures.append(fig_ode)
-        if fig_network is not None:
-            figures.append(fig_network)
+    figures = []
+    if fig_ode is not None:
+        figures.append(fig_ode)
+    if fig_network is not None:
+        figures.append(fig_network)
 
-        deg_df.attrs["advanced_figures"] = figures
-
-    except Exception as e:
-        print("Advanced Biomath Error:", e)
+    deg_df.attrs["advanced_figures"] = figures
 
     return deg_df
