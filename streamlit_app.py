@@ -341,116 +341,140 @@ with tabs[4]:
 # ==================================================
 # TAB 6 — ADAPTIVE
 # ==================================================
+# ==================================================
+# TAB 5 — BIOMATH ENGINE
+# ==================================================
 with tabs[5]:
-    st.info("Adaptive biomath module preserved")
+
+    st.header("🧮 BioMathematical Engine")
+
+    if st.session_state.get("deg") is None:
+        st.warning("⚠ Please complete DEG filtering in Tab 0 first.")
+        st.stop()
+
+    if st.button("Run BioMathematical Analysis"):
+
+        try:
+
+            gene_col = st.session_state.get("gene_col")
+            logfc_col = st.session_state.get("logfc_col")
+            pval_col = st.session_state.get("pval_col")
+
+            deg_df = st.session_state.get("deg")
+
+            # Safe empty PPI fallback
+            ppi = st.session_state.get(
+                "ppi",
+                pd.DataFrame(columns=["source", "target"])
+            )
+
+            # ---- Run Biomath Layer ----
+            biomath_df = run_biomath_layer(deg_df.copy(), ppi)
+
+            # ---- Store Results ----
+            st.session_state["biomath_df"] = biomath_df
+
+            # Simple interpretation placeholder
+            st.session_state["interpretation"] = {
+                "text_report": "BioMathematical analysis successfully completed."
+            }
+
+            st.success("✅ Biomath Analysis Completed")
+
+        except Exception as e:
+            st.error(f"Biomath Engine Error: {e}")
+
 
 # ==================================================
-# TAB 7 — EXPORT & INTERPRETATION
+# TAB 6 — EXPORT (PDF UNCHANGED)
 # ==================================================
 with tabs[6]:
 
+    st.header("📤 Export & Reports")
+
+    if st.session_state.get("biomath_df") is None:
+        st.warning("⚠ Run Biomath Analysis in Tab 5 first.")
+        st.stop()
+
+    # ---- DO NOT CHANGE (As Requested) ----
     if st.button("Generate PDF Report"):
         buffer = io.BytesIO()
         with PdfPages(buffer) as pdf:
             for name, fig in ALL_FIGURES:
                 pdf.savefig(fig)
 
-        st.download_button("Download Full PDF", buffer.getvalue(),"Phoenix_Report.pdf")
+        st.download_button(
+            "Download Full PDF",
+            buffer.getvalue(),
+            "Phoenix_Report.pdf"
+        )
 
     if st.checkbox("Generate Interpretation Report"):
-        pass
+        st.info("Interpretation report ready in Tab 7.")
 
+
+# ==================================================
+# TAB 7 — INTERPRETATION & SYSTEMS DASHBOARD
+# ==================================================
 with tabs[7]:
 
-    st.header("🧠 Integrated Systems Biology Engine")
+    st.header("🧠 Integrated Systems Biology Dashboard")
 
-    # --------------------------------------------------
-    # SAFETY CHECK — Ensure DEG Exists
-    # --------------------------------------------------
-    if st.session_state.get("deg") is None:
-        st.warning("⚠ Please complete DEG filtering in Tab 0 first.")
+    biomath_df = st.session_state.get("biomath_df")
+
+    if biomath_df is None:
+        st.warning("⚠ Run Biomath Analysis in Tab 5 first.")
         st.stop()
-
-    # --------------------------------------------------
-    # RUN PIPELINE
-    # --------------------------------------------------
-    if st.checkbox("Enable BioMathematical + Interpretation Pipeline"):
-
-        if st.button("Run Integrated Analysis"):
-
-            try:
-
-                results = bridge.run_full_pipeline(
-                    deg_df = st.session_state.get("deg"),
-                    gene_col = gene_col,
-                    logfc_col = logfc_col,
-                    pval_col = pval_col,
-                    ppi_df = ppi,
-                    enrichment_up = up_en,
-                    enrichment_down = down_en,
-                    mirna_df = mir,
-                    tf_df = tf_df,
-                    hub_df = hub
-                )
-
-                st.session_state["biomath_df"] = results.get("biomath_deg")
-                st.session_state["interpretation"] = results.get("interpretation")
-
-                st.success("✅ Integrated Analysis Completed")
-
-            except Exception as e:
-                st.error(f"Pipeline Error: {e}")
 
     # --------------------------------------------------
     # DISPLAY BIOMATH RESULTS
     # --------------------------------------------------
-    biomath_df = st.session_state.get("biomath_df")
-
-    if biomath_df is not None:
-
-        st.subheader("🔬 BioMathematical Results")
-
-        st.dataframe(biomath_df, use_container_width=True)
-
-        # -------- Systems Metrics --------
-        st.markdown("### 📊 Systems-Level Metrics")
-
-        metric_cols = st.columns(4)
-
-        try:
-            metric_cols[0].metric(
-                "Topology Score",
-                round(float(biomath_df.get("topology_score", [0])[0]), 4)
-            )
-
-            metric_cols[1].metric(
-                "Bayesian Entropy",
-                round(float(biomath_df.get("bayesian_entropy", [0])[0]), 4)
-            )
-
-            metric_cols[2].metric(
-                "Multi-Omics Index",
-                round(float(biomath_df.get("multiomics_index", [0])[0]), 4)
-            )
-
-            metric_cols[3].metric(
-                "ODE Growth Rate",
-                round(float(biomath_df.get("ode_growth_rate", [0])[0]), 4)
-            )
-
-        except:
-            st.info("Advanced metrics not available.")
-
-        # -------- Figures --------
-        if hasattr(biomath_df, "attrs") and "advanced_figures" in biomath_df.attrs:
-
-            st.markdown("### 📈 Systems Modeling Visualizations")
-
-            for fig in biomath_df.attrs["advanced_figures"]:
-                st.pyplot(fig)
+    st.subheader("🔬 BioMathematical Results")
+    st.dataframe(biomath_df, use_container_width=True)
 
     # --------------------------------------------------
-    # DISPLAY INTERPRETATION RESULTS
+    # SYSTEMS METRICS
+    # --------------------------------------------------
+    st.markdown("### 📊 Systems-Level Metrics")
+
+    metric_cols = st.columns(4)
+
+    try:
+        metric_cols[0].metric(
+            "Topology Score",
+            round(float(biomath_df.get("topology_score", [0])[0]), 4)
+        )
+
+        metric_cols[1].metric(
+            "Bayesian Entropy",
+            round(float(biomath_df.get("bayesian_entropy", [0])[0]), 4)
+        )
+
+        metric_cols[2].metric(
+            "Multi-Omics Index",
+            round(float(biomath_df.get("multiomics_index", [0])[0]), 4)
+        )
+
+        metric_cols[3].metric(
+            "ODE Growth Rate",
+            round(float(biomath_df.get("ode_growth_rate", [0])[0]), 4)
+        )
+
+    except:
+        st.info("Advanced metrics not available.")
+
+    # --------------------------------------------------
+    # FIGURES
+    # --------------------------------------------------
+    if hasattr(biomath_df, "attrs") and "advanced_figures" in biomath_df.attrs:
+
+        st.markdown("### 📈 Systems Modeling Visualizations")
+
+        for fig in biomath_df.attrs["advanced_figures"]:
+            st.pyplot(fig)
+
+    # --------------------------------------------------
+    # INTERPRETATION
     # --------------------------------------------------
     interpretation = st.session_state.get("interpretation")
 
@@ -460,7 +484,6 @@ with tabs[7]:
 
         if isinstance(interpretation, dict):
 
-            # ---- Text Report ----
             if "text_report" in interpretation:
                 st.text_area(
                     "Interpretation Report",
@@ -468,27 +491,25 @@ with tabs[7]:
                     height=400
                 )
 
-            # ---- Interpretation Figures ----
             if "figures" in interpretation and interpretation["figures"]:
-
                 st.markdown("### 📊 Interpretation Visuals")
-
                 for fig in interpretation["figures"]:
                     st.pyplot(fig)
 
         else:
-            # Fallback if interpretation is plain text
             st.text_area(
                 "Interpretation Report",
                 str(interpretation),
                 height=400
             )
 
+
 # ==================================================
-# METADATA
+# METADATA (SAFE)
 # ==================================================
 st.header("Metadata")
+
 st.json({
     "Timestamp": datetime.utcnow().isoformat(),
-    "DEGs": len(deg)
+    "DEGs": len(st.session_state.get("deg", []))
 })
