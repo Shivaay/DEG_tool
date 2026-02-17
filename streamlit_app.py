@@ -24,7 +24,7 @@ from pyvis.network import Network
 import warnings
 warnings.filterwarnings("ignore")
 from biomath_layer import run_biomath_layer
-
+from interpretation_engine import InterpretationInput, InterpretationEngine
 
 
 
@@ -372,12 +372,20 @@ with tabs[5]:
                 pd.DataFrame(columns=["source", "target"])
             )
 
-            biomath_df = run_biomath_layer(
+            pval_col = st.session_state.get("pval_col")
+            biomath_df, biomath_metrics = run_biomath_layer(
                 deg_df.copy(),
                 gene_col,
                 logfc_col,
+                pval_col,
                 ppi
             )
+
+st.session_state["biomath_df"] = biomath_df
+st.session_state["biomath_metrics"] = biomath_metrics
+
+st.success("✅ Biomath Analysis Completed")
+
 
             st.session_state["biomath_df"] = biomath_df
 
@@ -484,30 +492,26 @@ with tabs[7]:
     # --------------------------------------------------
     interpretation = st.session_state.get("interpretation")
 
-    if interpretation is not None:
+    biomath_metrics = st.session_state.get("biomath_metrics")
+    hub_df = ALL_TABLES.get("HubGenes")
+    
+    if biomath_metrics is not None:
+        input_data = InterpretationInput(
+            deg_table=biomath_df,
+            biomath_metrics=biomath_metrics,
+            hub_genes=hub_df
+        )
+        engine = InterpretationEngine(input_data)
+        report = engine.generate()
+        st.text_area(
+            "Scientific Interpretation Report",
+            report,
+            height=500
+        )
 
-        st.subheader("🧬 Scientific Interpretation")
+else:
 
-        if isinstance(interpretation, dict):
-
-            if "text_report" in interpretation:
-                st.text_area(
-                    "Interpretation Report",
-                    interpretation["text_report"],
-                    height=400
-                )
-
-            if "figures" in interpretation and interpretation["figures"]:
-                st.markdown("### 📊 Interpretation Visuals")
-                for fig in interpretation["figures"]:
-                    st.pyplot(fig)
-
-        else:
-            st.text_area(
-                "Interpretation Report",
-                str(interpretation),
-                height=400
-            )
+    st.warning("Run biomath analysis first.")
 
 
 # ==================================================
