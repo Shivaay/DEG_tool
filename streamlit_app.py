@@ -481,244 +481,159 @@ with tabs[5]:
 # ==================================================
 # TAB 6 — EXPORT & REPORT GENERATION
 # ==================================================
-with tabs[6]:
+        # ==============================
+# TAB 6 — Integrated Systems Biology
+# ==============================
 
-    st.header("📤 Export & Reports")
+with tab6:
 
-    biomath_df = st.session_state.get("biomath_df")
-    biomath_metrics = st.session_state.get("biomath_metrics")
+    st.header("🧬 Integrated Systems Biology Interpretation")
 
-    if biomath_df is None or biomath_metrics is None:
+    if "df_deg" not in st.session_state:
 
-        st.warning("⚠ Please run BioMathematical Analysis in Tab 5 first.")
-        st.stop()
+        st.warning("Please upload and process DEG data first.")
 
+    else:
 
-    # -------------------------------
-    # DOWNLOAD BIOMATH TABLE
-    # -------------------------------
+        df_deg = st.session_state["df_deg"]
 
-    st.subheader("Download BioMath Table")
+        st.subheader("Preview of DEG Data")
 
-    st.download_button(
+        st.dataframe(df_deg.head())
 
-        "Download BioMath Results (CSV)",
+        if st.button("Run BioMath Layer Analysis"):
 
-        biomath_df.to_csv(index=False),
+            try:
 
-        "biomath_results.csv",
+                from biomath_layer import BioMathLayer
 
-        mime="text/csv"
+                # Clean data
+                df_deg = df_deg.dropna()
 
-    )
+                df_deg = df_deg[df_deg["pvalue"] > 0]
 
+                biomath = BioMathLayer(df_deg)
 
-    # -------------------------------
-    # DOWNLOAD METRICS
-    # -------------------------------
+                biomath_results = biomath.run_all()
 
-    st.subheader("Download Systems Metrics")
+                # STORE EVERYTHING SAFELY
+                st.session_state["biomath_results"] = biomath_results
 
-    metrics_df = pd.DataFrame(
+                st.session_state["gene_metrics"] = biomath_results.get(
+                    "gene_metrics", None
+                )
 
-        list(biomath_metrics.items()),
+                st.session_state["hub_genes"] = biomath_results.get(
+                    "hub_genes", None
+                )
 
-        columns=["Metric", "Value"]
+                st.session_state["system_metrics"] = biomath_results.get(
+                    "system_metrics", None
+                )
 
-    )
+                st.success("BioMath Analysis Completed")
 
-    st.download_button(
+                # =====================
+                # DISPLAY RESULTS
+                # =====================
 
-        "Download Systems Metrics (CSV)",
+                st.subheader("🧠 BioMath Gene-Level Results")
 
-        metrics_df.to_csv(index=False),
+                if st.session_state["gene_metrics"] is not None:
 
-        "systems_metrics.csv",
+                    st.dataframe(st.session_state["gene_metrics"].head())
 
-        mime="text/csv"
+                st.subheader("📊 Systems Level Metrics")
 
-    )
+                system_metrics = st.session_state["system_metrics"]
 
+                if system_metrics is not None:
 
-    # -------------------------------
-    # PDF EXPORT
-    # -------------------------------
+                    col1, col2, col3, col4 = st.columns(4)
 
-    st.subheader("Generate PDF Report")
+                    col1.metric(
+                        "System Entropy",
+                        round(system_metrics["entropy"], 4),
+                    )
 
-    if st.button("Generate PDF"):
+                    col2.metric(
+                        "System Stability",
+                        round(system_metrics["stability"], 4),
+                    )
 
-        buffer = io.BytesIO()
+                    col3.metric(
+                        "Network Centrality",
+                        round(system_metrics["centrality"], 4),
+                    )
 
-        with PdfPages(buffer) as pdf:
+                    col4.metric(
+                        "Perturbation Magnitude",
+                        round(system_metrics["perturbation"], 4),
+                    )
 
-            for name, fig in ALL_FIGURES:
+                st.subheader("🧬 Hub Genes")
 
-                pdf.savefig(fig)
+                if st.session_state["hub_genes"] is not None:
 
-        st.download_button(
+                    st.dataframe(st.session_state["hub_genes"])
 
-            "Download PDF Report",
+            except Exception as e:
 
-            buffer.getvalue(),
+                st.error(f"BioMath Layer Error: {e}")
 
-            "PhoenixBioInfoSys_Report.pdf",
 
-            mime="application/pdf"
+# ==============================
+# TAB 7 — Interpretation Engine
+# ==============================
 
-        )
+with tab7:
 
+    st.header("🧠 Scientific Interpretation Engine")
 
-    st.success("Export module ready.")
+    if "biomath_results" not in st.session_state:
 
-# ==================================================
-# TAB 7 — INTERPRETATION ENGINE
-# ==================================================
-with tabs[7]:
+        st.warning("Please run BioMath Layer first in Tab 6.")
 
-    st.header("🧠 Integrated Systems Biology Interpretation")
+    else:
 
-    biomath_df = st.session_state.get("biomath_df")
+        if st.button("Generate Scientific Interpretation"):
 
-    biomath_metrics = st.session_state.get("biomath_metrics")
+            try:
 
-    hub_df = ALL_TABLES.get("HubGenes")
+                from interpretation_engine import InterpretationEngine
 
+                biomath_results = st.session_state["biomath_results"]
 
-    if biomath_df is None or biomath_metrics is None:
+                engine = InterpretationEngine(
 
-        st.warning("⚠ Please run BioMathematical Analysis in Tab 5 first.")
+                    biomath_results=biomath_results
 
-        st.stop()
+                )
 
+                report = engine.generate()
 
-    # -------------------------------
-    # SHOW BIOMATH RESULTS
-    # -------------------------------
+                st.success("Interpretation Generated Successfully")
 
-    st.subheader("BioMath Gene-Level Results")
+                st.subheader("📜 Manuscript-Ready Interpretation")
 
-    st.dataframe(
+                st.write(report)
 
-        biomath_df,
+                st.download_button(
 
-        use_container_width=True
+                    label="Download Interpretation Report",
 
-    )
+                    data=report,
 
+                    file_name="PhoenixBioInfoSys_DEG_Interpretation.txt",
 
-    # -------------------------------
-    # SHOW SYSTEM METRICS
-    # -------------------------------
+                    mime="text/plain"
 
-    st.subheader("Systems Level Metrics")
+                )
 
-    col1, col2, col3, col4 = st.columns(4)
+            except Exception as e:
 
-    col1.metric(
-
-        "System Entropy",
-
-        f"{biomath_metrics['system_entropy']:.4f}"
-
-    )
-
-    col2.metric(
-
-        "System Stability",
-
-        f"{biomath_metrics['system_stability']:.4f}"
-
-    )
-
-    col3.metric(
-
-        "Network Centrality",
-
-        f"{biomath_metrics['network_centrality']:.4f}"
-
-    )
-
-    col4.metric(
-
-        "Perturbation Magnitude",
-
-        f"{biomath_metrics['perturbation_magnitude']:.4f}"
-
-    )
-
-
-    # -------------------------------
-    # RUN INTERPRETATION ENGINE
-    # -------------------------------
-
-    from interpretation_engine import (
-
-        InterpretationInput,
-
-        InterpretationEngine
-
-    )
-
-
-    interpretation_input = InterpretationInput(
-
-        deg_table=biomath_df,
-
-        biomath_metrics=biomath_metrics,
-
-        hub_genes=hub_df
-
-    )
-
-
-    engine = InterpretationEngine(
-
-        interpretation_input
-
-    )
-
-
-    report = engine.generate()
-
-
-    # -------------------------------
-    # DISPLAY REPORT
-    # -------------------------------
-
-    st.subheader("Scientific Interpretation Report")
-
-    st.text_area(
-
-        "Manuscript-Ready Interpretation",
-
-        report,
-
-        height=500
-
-    )
-
-
-    # -------------------------------
-    # DOWNLOAD REPORT
-    # -------------------------------
-
-    st.download_button(
-
-        "Download Interpretation Report",
-
-        report,
-
-        "systems_interpretation.txt",
-
-        mime="text/plain"
-
-    )
-
-
-    st.success("Interpretation completed successfully.")
-    
-    
+                st.error(f"Interpretation Engine Error: {e}")
+                
 
 # ==================================================
 # METADATA (SAFE)
