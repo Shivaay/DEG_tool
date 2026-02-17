@@ -232,6 +232,8 @@ with tabs[2]:
             return pd.DataFrame()
 
     ppi = fetch_ppi(genes)
+    st.session_state["ppi"] = ppi
+
 
     if not ppi.empty:
 
@@ -363,23 +365,22 @@ with tabs[5]:
 
             gene_col = st.session_state.get("gene_col")
             logfc_col = st.session_state.get("logfc_col")
-            pval_col = st.session_state.get("pval_col")
-
             deg_df = st.session_state.get("deg")
 
-            # Safe empty PPI fallback
             ppi = st.session_state.get(
                 "ppi",
                 pd.DataFrame(columns=["source", "target"])
             )
 
-            # ---- Run Biomath Layer ----
-            biomath_df = run_biomath_layer(deg_df.copy(), ppi)
+            biomath_df = run_biomath_layer(
+                deg_df.copy(),
+                gene_col,
+                logfc_col,
+                ppi
+            )
 
-            # ---- Store Results ----
             st.session_state["biomath_df"] = biomath_df
 
-            # Simple interpretation placeholder
             st.session_state["interpretation"] = {
                 "text_report": "BioMathematical analysis successfully completed."
             }
