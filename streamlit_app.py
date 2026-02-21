@@ -220,27 +220,15 @@ with tabs[1]:
 # TAB 3 — PPI
 # ==================================================
 # ==================================================
-# TAB 3 — PPI (Advanced CytoHubba + Up/Down Split)
-# ==================================================
-# ==================================================
-# TAB 2 — FULL CYTOHUBBA HUB GENE ANALYSIS
-# ==================================================
-# ==================================================
-# TAB 3 — FULL CYTOHUBBA PPI (SAFE + COMPLETE)
-# ==================================================
-# ==================================================
-# TAB 3 — PPI (FULL 12 CYTOHUBBA + MICRO ADDITIONS)
-# ==================================================
-# ==================================================
-# TAB 3 — PPI (ORIGINAL OUTPUT PRESERVED + UPGRADES)
+# TAB 3 — PPI NETWORK (STABLE + ALL 12 CYTOHUBBA)
 # ==================================================
 with tabs[2]:
 
-    st.header("🔗 Protein–Protein Interaction Network")
+    st.header("🔗 Protein–Protein Interaction Network (cytoHubba Analysis)")
 
-    # -----------------------------
-    # Network Type Selection (ADDED)
-    # -----------------------------
+    # ----------------------------
+    # Choose Gene Set
+    # ----------------------------
     network_mode = st.radio(
         "Select Network Type",
         ["All DEGs", "Upregulated Only", "Downregulated Only"]
@@ -253,13 +241,15 @@ with tabs[2]:
     else:
         selected_genes = genes
 
-    # -----------------------------
-    # STRING FETCH (UNCHANGED)
-    # -----------------------------
+    if len(selected_genes) == 0:
+        st.warning("No genes available for selected category.")
+        st.stop()
+
+    # ----------------------------
+    # Fetch STRING PPI
+    # ----------------------------
     @st.cache_data(ttl=3600)
     def fetch_ppi(g):
-        if len(g)==0:
-            return pd.DataFrame()
         try:
             r = requests.post(
                 "https://string-db.org/api/tsv/network",
@@ -271,40 +261,26 @@ with tabs[2]:
             return pd.DataFrame()
 
     ppi = fetch_ppi(selected_genes)
-    st.session_state["ppi"] = ppi
 
     if ppi.empty:
         st.warning("No STRING interactions found.")
         st.stop()
 
-    # -----------------------------
-    # Show Gene List Used (ADDED)
-    # -----------------------------
-    st.subheader(f"Genes Used in {network_mode}")
-    gene_table = pd.DataFrame(selected_genes, columns=["Gene"])
-    st.dataframe(gene_table)
-
-    st.download_button(
-        f"Download {network_mode} Gene List",
-        gene_table.to_csv(index=False),
-        f"{network_mode.replace(' ','_')}_genes.csv",
-        mime="text/csv"
-    )
-
-    # -----------------------------
-    # Graph Construction (UNCHANGED)
-    # -----------------------------
     G = nx.from_pandas_edgelist(
         ppi,
         "preferredName_A",
         "preferredName_B"
     )
 
-    # -----------------------------
-    # Hub Metric (EXPANDED TO 12)
-    # -----------------------------
+    if G.number_of_nodes() == 0:
+        st.warning("Graph construction failed.")
+        st.stop()
+
+    # ----------------------------
+    # CytoHubba Algorithms
+    # ----------------------------
     method = st.selectbox(
-        "Hub Metric",
+        "Hub Detection Algorithm",
         [
             "Degree",
             "Betweenness Centrality",
@@ -321,161 +297,177 @@ with tabs[2]:
         ]
     )
 
-    hub_count = st.slider("Hub Count",5,50,10)
+    hub_count = st.slider("Hub Count", 5, 50, 10)
 
-    import random
+    # Work on largest connected component for stability
+    largest_cc = max(nx.connected_components(G), key=len)
+    H = G.subgraph(largest_cc).copy()
 
+    # ----------------------------
+    # SAFE IMPLEMENTATIONS
+    # ----------------------------
     if method == "Degree":
-        scores = dict(G.degree())
+        scores = dict(H.degree())
 
     elif method == "Betweenness Centrality":
-        scores = nx.betweenness_centrality(G)
+        scores = nx.betweenness_centrality(H)
 
     elif method == "Closeness Centrality":
-        scores = nx.closeness_centrality(G)
+        scores = nx.closeness_centrality(H)
 
     elif method == "Stress Centrality":
-        scores = nx.stress_centrality(G)
+        scores = nx.betweenness_centrality(H, normalized=False)
 
     elif method == "Radiality":
-        ecc = nx.eccentricity(G)
+        ecc = nx.eccentricity(H)
         diameter = max(ecc.values())
-        scores = {n:(diameter-ecc[n])/diameter for n in G.nodes()}
+        scores = {n:(diameter - ecc[n])/(diameter) for n in H.nodes()}
 
     elif method == "EPC":
+        import random
         scores = {}
-        simulations = 20
-        for node in G.nodes():
+        for node in H.nodes():
             total = 0
-            for _ in range(simulations):
-                H = G.copy()
-                for edge in list(H.edges()):
-                    if random.random()<0.5:
-                        H.remove_edge(*edge)
-                if node in H:
-                    total += len(nx.node_connected_component(H,node))
-            scores[node]=total/simulations
+            for _ in range(20):
+                temp = H.copy()
+                for edge in list(temp.edges()):
+                    if random.random() < 0.3:
+                        temp.remove_edge(*edge)
+                if node in temp:
+                    total += len(nx.node_connected_component(temp,node))
+            scores[node] = total / 20
 
     elif method == "Bottleneck":
-        scores = nx.betweenness_centrality(G)
+        scores = nx.betweenness_centrality(H)
 
     elif method == "Eccentricity":
-        scores = nx.eccentricity(G)
+        scores = nx.eccentricity(H)
 
     elif method == "Clustering Coefficient":
-        scores = nx.clustering(G)
+        scores = nx.clustering(H)
 
     elif method == "MNC":
-        scores={}
-        for node in G.nodes():
-            neighbors=list(G.neighbors(node))
-            sub=G.subgraph(neighbors)
-            if len(sub)==0:
-                scores[node]=0
+        scores = {}
+        for node in H.nodes():
+            neighbors = list(H.neighbors(node))
+            sub = H.subgraph(neighbors)
+            if len(sub) == 0:
+                scores[node] = 0
             else:
-                largest_cc=max(nx.connected_components(sub),key=len)
-                scores[node]=len(largest_cc)
+                largest = max(nx.connected_components(sub), key=len)
+                scores[node] = len(largest)
 
     elif method == "DMNC":
-        scores={}
-        for node in G.nodes():
-            neighbors=list(G.neighbors(node))
-            sub=G.subgraph(neighbors)
-            if len(sub)<=2:
-                scores[node]=0
+        scores = {}
+        for node in H.nodes():
+            neighbors = list(H.neighbors(node))
+            sub = H.subgraph(neighbors)
+            if sub.number_of_nodes() < 2:
+                scores[node] = 0
             else:
-                largest_cc_nodes=max(nx.connected_components(sub),key=len)
-                largest_cc=sub.subgraph(largest_cc_nodes)
-                E=largest_cc.number_of_edges()
-                N=largest_cc.number_of_nodes()
-                scores[node]=E/(N**1.7)
+                largest_nodes = max(nx.connected_components(sub), key=len)
+                largest = sub.subgraph(largest_nodes)
+                E = largest.number_of_edges()
+                N = largest.number_of_nodes()
+                scores[node] = E/(N**1.7)
 
     elif method == "MCC":
-        scores={n:0 for n in G.nodes()}
-        cliques=list(nx.find_cliques(G))
+        scores = {n:0 for n in H.nodes()}
+        cliques = list(nx.find_cliques(H))
         for clique in cliques:
-            k=len(clique)
-            if k>=3:
+            k = len(clique)
+            if k >= 3:
                 for node in clique:
-                    scores[node]+=(k-1)*(k-2)//2
+                    scores[node] += (k-1)*(k-2)//2
 
-    # -----------------------------
-    # Ranking (UNCHANGED STYLE)
-    # -----------------------------
-    hub = (
-        pd.DataFrame(scores.items(),columns=["Gene","Score"])
-        .sort_values("Score",ascending=False)
-        .head(hub_count)
+    # ----------------------------
+    # Ranking
+    # ----------------------------
+    ranking = (
+        pd.DataFrame(scores.items(), columns=["Gene","Score"])
+        .sort_values("Score", ascending=False)
     )
 
-    hubs = hub["Gene"].tolist()
-    subG = G.subgraph(hubs)
+    hub = ranking.head(hub_count)
 
-    # -----------------------------
-    # Visualization Mode (ADDED)
-    # -----------------------------
+    # ----------------------------
+    # Visualization Mode
+    # ----------------------------
     view_mode = st.radio(
         "Visualization Mode",
-        ["Hub Subnetwork (Original)", "Full Network"]
+        ["Hub Subnetwork", "Full Network"]
     )
 
-    plot_graph = subG if view_mode=="Hub Subnetwork (Original)" else G
+    if view_mode == "Hub Subnetwork":
+        plot_graph = H.subgraph(hub["Gene"].tolist())
+    else:
+        plot_graph = H
 
-    pos = nx.spring_layout(plot_graph)
+    # ----------------------------
+    # Color Logic (CORRECTED)
+    # ----------------------------
+    top3 = ranking.head(3)["Gene"].tolist()
+    bottom3 = ranking.tail(3)["Gene"].tolist()
 
-    # Top3 orange / bottom3 yellow
-    full_rank = pd.DataFrame(scores.items(),columns=["Gene","Score"])\
-        .sort_values("Score",ascending=False)
-
-    top3 = full_rank.head(3)["Gene"].tolist()
-    bottom3 = full_rank.tail(3)["Gene"].tolist()
-
-    node_colors=[]
+    node_colors = []
     for node in plot_graph.nodes():
         if node in top3:
             node_colors.append("orange")
         elif node in bottom3:
             node_colors.append("yellow")
         else:
-            node_colors.append("lightblue")
+            node_colors.append("skyblue")
 
-    fig_ppi, ax = plt.subplots(figsize=(8,6))
+    # ----------------------------
+    # Plot
+    # ----------------------------
+    pos = nx.spring_layout(plot_graph, seed=42)
+
+    fig, ax = plt.subplots(figsize=(9,7))
     nx.draw(
         plot_graph,
         pos,
         node_color=node_colors,
-        node_size=2800 if view_mode=="Hub Subnetwork (Original)" else 1200,
+        node_size=2500 if view_mode=="Hub Subnetwork" else 900,
         with_labels=True,
         ax=ax
     )
 
-    st.pyplot(fig_ppi)
-    download_figure(fig_ppi,f"PPI_{network_mode}")
+    st.pyplot(fig)
 
+    # ----------------------------
+    # Tables & Downloads
+    # ----------------------------
+    st.subheader("Hub Gene Ranking")
     st.dataframe(hub)
 
     st.download_button(
         "Download Hub Ranking Table",
         hub.to_csv(index=False),
-        "hub_gene_ranking.csv",
+        "hub_ranking.csv",
         mime="text/csv"
     )
 
-    # -----------------------------
-    # Explanation (ADDED)
-    # -----------------------------
+    gene_table = pd.DataFrame(selected_genes, columns=["Gene"])
+    st.download_button(
+        f"Download {network_mode} Gene List",
+        gene_table.to_csv(index=False),
+        f"{network_mode.replace(' ','_')}_genes.csv",
+        mime="text/csv"
+    )
+
+    # ----------------------------
+    # Explanation
+    # ----------------------------
     st.info(f"""
-Hub genes selected using **{method}** (cytoHubba topological algorithm).
+Hub genes selected using **{method}** algorithm.
 
-Higher score = stronger structural importance in protein interaction network.
+Top 3 genes (orange) → strongest topological influence  
+Bottom 3 genes (yellow) → weakest influence  
 
-Network source: STRING (Homo sapiens)
-Network type: {network_mode}
-
-Orange → Top 3 most influential genes  
-Yellow → Bottom 3 least connected genes  
-Blue → Intermediate connectivity
-""")
+Network Source: STRING (Homo sapiens)
+Network Type: {network_mode}
+    """)
 # ==================================================
 # TAB 4 — ENRICHMENT + GO VISUALIZATION
 # ==================================================
