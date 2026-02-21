@@ -223,20 +223,16 @@ with tabs[1]:
 # TAB 3 — PPI NETWORK (STABLE + ALL 12 CYTOHUBBA)
 # ==================================================
 # ==================================================
-# TAB 3 — STRUCTURED CYTOHUBBA PPI NETWORK
-# ==================================================
-# ==================================================
-# TAB 2 — PPI (STRING + cytoHubba Accurate)
+# TAB 2 — PPI NETWORK (STRING + 12 cytoHubba)
 # ==================================================
 with tabs[2]:
 
-    st.header("🔗 Protein–Protein Interaction Network (Cytoscape Style)")
+    st.header("🔗 Protein–Protein Interaction Network (STRING v11.5)")
 
     st.caption("""
-    Database: STRING v11.5  
-    Species: Homo sapiens (9606)  
-    Confidence threshold: combined_score ≥ 700  
-    Hub detection: cytoHubba topological algorithms
+    Database: STRING v11.5 (Homo sapiens – 9606)  
+    Confidence filter: ≥ 0.700 (High confidence)  
+    Hub detection: 12 cytoHubba topological algorithms  
     """)
 
     network_mode = st.radio(
@@ -255,36 +251,103 @@ with tabs[2]:
         st.warning("No genes available.")
         st.stop()
 
+    # --------------------------------------------------
+    # SAFE STRING API CALL
+    # --------------------------------------------------
     @st.cache_data(ttl=3600)
-    def fetch_ppi(g):
-        r = requests.post(
-            "https://string-db.org/api/tsv/network",
-            data={"identifiers": "%0d".join(g[:150]), "species": 9606}
-        )
-        df = pd.read_csv(io.StringIO(r.text), sep="\t")
-        return df[df["combined_score"] >= 700]
+    def fetch_ppi(gene_list):
+
+        if not gene_list:
+            return pd.DataFrame()
+
+        try:
+            response = requests.post(
+                "https://string-db.org/api/tsv/network",
+                data={
+                    "identifiers": "%0d".join(gene_list[:150]),
+                    "species": 9606
+                },
+                timeout=30
+            )
+
+            if response.status_code != 200:
+                return pd.DataFrame()
+
+            df = pd.read_csv(io.StringIO(response.text), sep="\t")
+
+            if df.empty:
+                return pd.DataFrame()
+
+            # Dynamically detect score column
+            score_col = None
+            for col in df.columns:
+                if "score" in col.lower():
+                    score_col = col
+                    break
+
+            if score_col is None:
+                return pd.DataFrame()
+
+            df[score_col] = pd.to_numeric(df[score_col], errors="coerce")
+
+            # High confidence ≥ 0.700
+            df = df[df[score_col] >= 700]
+
+            return df
+
+        except Exception:
+            return pd.DataFrame()
 
     ppi = fetch_ppi(selected_genes)
 
     if ppi.empty:
-        st.warning("No high-confidence interactions found.")
+        st.warning("No high-confidence STRING interactions found.")
         st.stop()
 
+    # --------------------------------------------------
+    # BUILD NETWORK
+    # --------------------------------------------------
     G = nx.from_pandas_edgelist(
-        ppi, "preferredName_A", "preferredName_B"
+        ppi,
+        source="preferredName_A",
+        target="preferredName_B"
     )
+
+    if G.number_of_nodes() == 0:
+        st.warning("Network construction failed.")
+        st.stop()
 
     largest_cc = max(nx.connected_components(G), key=len)
     H = G.subgraph(largest_cc).copy()
 
+    st.success(f"Nodes: {H.number_of_nodes()} | Edges: {H.number_of_edges()}")
+
+    # --------------------------------------------------
+    # HUB ALGORITHM SELECTION
+    # --------------------------------------------------
     method = st.selectbox(
         "Hub Detection Algorithm",
-        ["Degree","Betweenness Centrality","Closeness Centrality",
-         "Stress Centrality","Radiality","EPC","Bottleneck",
-         "Eccentricity","Clustering Coefficient","MNC","DMNC","MCC"]
+        [
+            "Degree",
+            "Betweenness Centrality",
+            "Closeness Centrality",
+            "Stress Centrality",
+            "Radiality",
+            "EPC",
+            "Bottleneck",
+            "Eccentricity",
+            "Clustering Coefficient",
+            "MNC",
+            "DMNC",
+            "MCC"
+        ]
     )
 
     hub_count = st.slider("Number of Top Hubs", 5, 30, 10)
+
+    # --------------------------------------------------
+    # 12 CYTOHUBBA IMPLEMENTATIONS
+    # --------------------------------------------------
 
     if method == "Degree":
         scores = dict(H.degree())
@@ -296,37 +359,39 @@ with tabs[2]:
         scores = nx.closeness_centrality(H)
 
     elif method == "Stress Centrality":
-        scores = {n:0 for n in H.nodes()}
+        scores = {n: 0 for n in H.nodes()}
         for s in H.nodes():
             paths = nx.single_source_shortest_path(H, s)
             for t in paths:
                 if s != t:
                     for node in paths[t]:
-                        if node not in (s,t):
-                            scores[node]+=1
+                        if node not in (s, t):
+                            scores[node] += 1
 
     elif method == "Radiality":
         ecc = nx.eccentricity(H)
         diameter = max(ecc.values())
         scores = {
-            n: sum(diameter+1-nx.shortest_path_length(H,n,t)
-                   for t in H.nodes() if t!=n)/(len(H.nodes())-1)
+            n: sum(
+                diameter + 1 - nx.shortest_path_length(H, n, t)
+                for t in H.nodes() if t != n
+            ) / (len(H.nodes()) - 1)
             for n in H.nodes()
         }
 
     elif method == "EPC":
         import random
-        scores={}
+        scores = {}
         for node in H.nodes():
-            total=0
+            total = 0
             for _ in range(20):
-                temp=H.copy()
+                temp = H.copy()
                 for edge in list(temp.edges()):
-                    if random.random()<0.3:
+                    if random.random() < 0.3:
                         temp.remove_edge(*edge)
                 if node in temp:
-                    total+=len(nx.node_connected_component(temp,node))
-            scores[node]=total/20
+                    total += len(nx.node_connected_component(temp, node))
+            scores[node] = total / 20
 
     elif method == "Bottleneck":
         scores = nx.betweenness_centrality(H)
@@ -338,46 +403,82 @@ with tabs[2]:
         scores = nx.clustering(H)
 
     elif method == "MNC":
-        scores={}
+        scores = {}
         for node in H.nodes():
-            neighbors=list(H.neighbors(node))
-            sub=H.subgraph(neighbors)
-            if len(sub)==0:
-                scores[node]=0
+            neighbors = list(H.neighbors(node))
+            sub = H.subgraph(neighbors)
+            if len(sub) == 0:
+                scores[node] = 0
             else:
-                largest=max(nx.connected_components(sub),key=len)
-                scores[node]=len(largest)
+                largest = max(nx.connected_components(sub), key=len)
+                scores[node] = len(largest)
 
     elif method == "DMNC":
-        scores={}
+        scores = {}
         for node in H.nodes():
-            neighbors=list(H.neighbors(node))
-            sub=H.subgraph(neighbors)
-            if sub.number_of_nodes()<2:
-                scores[node]=0
+            neighbors = list(H.neighbors(node))
+            sub = H.subgraph(neighbors)
+            if sub.number_of_nodes() < 2:
+                scores[node] = 0
             else:
-                largest_nodes=max(nx.connected_components(sub),key=len)
-                largest=sub.subgraph(largest_nodes)
-                E=largest.number_of_edges()
-                N=largest.number_of_nodes()
-                scores[node]=E/(N**1.7)
+                largest_nodes = max(nx.connected_components(sub), key=len)
+                largest = sub.subgraph(largest_nodes)
+                E = largest.number_of_edges()
+                N = largest.number_of_nodes()
+                scores[node] = E / (N ** 1.7)
 
     elif method == "MCC":
-        scores={n:0 for n in H.nodes()}
-        cliques=list(nx.find_cliques(H))
+        scores = {n: 0 for n in H.nodes()}
+        cliques = list(nx.find_cliques(H))
         for clique in cliques:
-            k=len(clique)
-            if k>=3:
-                weight=(k-1)*(k-2)//2
+            k = len(clique)
+            if k >= 3:
+                weight = (k - 1) * (k - 2) // 2
                 for node in clique:
-                    scores[node]+=weight
+                    scores[node] += weight
 
-    ranking = pd.DataFrame(scores.items(),columns=["Gene","Score"])\
-        .sort_values("Score",ascending=False)
+    # --------------------------------------------------
+    # RANK HUBS
+    # --------------------------------------------------
+    ranking = (
+        pd.DataFrame(scores.items(), columns=["Gene", "Score"])
+        .sort_values("Score", ascending=False)
+    )
 
-    hub = ranking.head(hub_count)
-    st.subheader("Hub Ranking Table")
-    st.dataframe(hub)
+    hub_df = ranking.head(hub_count)
+
+    st.subheader("Hub Gene Ranking")
+    st.dataframe(hub_df)
+
+    # --------------------------------------------------
+    # NETWORK VISUALIZATION (Top 3 ORANGE, Bottom 3 YELLOW)
+    # --------------------------------------------------
+    pos = nx.spring_layout(H, seed=42)
+
+    top3 = hub_df["Gene"].head(3).tolist()
+    bottom3 = hub_df["Gene"].tail(3).tolist()
+
+    node_colors = []
+    for node in H.nodes():
+        if node in top3:
+            node_colors.append("orange")
+        elif node in bottom3:
+            node_colors.append("yellow")
+        else:
+            node_colors.append("skyblue")
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    nx.draw(
+        H,
+        pos,
+        node_color=node_colors,
+        node_size=800,
+        with_labels=True,
+        font_size=8,
+        ax=ax
+    )
+
+    st.pyplot(fig)
 # ==================================================
 # TAB 4 — ENRICHMENT + GO VISUALIZATION
 # ==================================================
