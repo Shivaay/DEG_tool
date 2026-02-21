@@ -222,12 +222,15 @@ with tabs[1]:
 # ==================================================
 # TAB 3 — PPI NETWORK (STABLE + ALL 12 CYTOHUBBA)
 # ==================================================
+# ==================================================
+# TAB 3 — STRUCTURED CYTOHUBBA PPI NETWORK
+# ==================================================
 with tabs[2]:
 
-    st.header("🔗 Protein–Protein Interaction Network (cytoHubba Analysis)")
+    st.header("🔗 Protein–Protein Interaction Network (Cytoscape Style)")
 
     # ----------------------------
-    # Choose Gene Set
+    # Network Type Selection
     # ----------------------------
     network_mode = st.radio(
         "Select Network Type",
@@ -242,11 +245,11 @@ with tabs[2]:
         selected_genes = genes
 
     if len(selected_genes) == 0:
-        st.warning("No genes available for selected category.")
+        st.warning("No genes available.")
         st.stop()
 
     # ----------------------------
-    # Fetch STRING PPI
+    # STRING Fetch
     # ----------------------------
     @st.cache_data(ttl=3600)
     def fetch_ppi(g):
@@ -263,7 +266,7 @@ with tabs[2]:
     ppi = fetch_ppi(selected_genes)
 
     if ppi.empty:
-        st.warning("No STRING interactions found.")
+        st.warning("No interactions found.")
         st.stop()
 
     G = nx.from_pandas_edgelist(
@@ -273,11 +276,15 @@ with tabs[2]:
     )
 
     if G.number_of_nodes() == 0:
-        st.warning("Graph construction failed.")
+        st.warning("Graph empty.")
         st.stop()
 
+    # Work on largest component
+    largest_cc = max(nx.connected_components(G), key=len)
+    H = G.subgraph(largest_cc).copy()
+
     # ----------------------------
-    # CytoHubba Algorithms
+    # 12 CytoHubba Algorithms
     # ----------------------------
     method = st.selectbox(
         "Hub Detection Algorithm",
@@ -297,15 +304,9 @@ with tabs[2]:
         ]
     )
 
-    hub_count = st.slider("Hub Count", 5, 50, 10)
+    hub_count = st.slider("Number of Top Hubs", 5, 30, 10)
 
-    # Work on largest connected component for stability
-    largest_cc = max(nx.connected_components(G), key=len)
-    H = G.subgraph(largest_cc).copy()
-
-    # ----------------------------
-    # SAFE IMPLEMENTATIONS
-    # ----------------------------
+    # ---- SAFE IMPLEMENTATIONS ----
     if method == "Degree":
         scores = dict(H.degree())
 
@@ -321,7 +322,7 @@ with tabs[2]:
     elif method == "Radiality":
         ecc = nx.eccentricity(H)
         diameter = max(ecc.values())
-        scores = {n:(diameter - ecc[n])/(diameter) for n in H.nodes()}
+        scores = {n:(diameter-ecc[n])/diameter for n in H.nodes()}
 
     elif method == "EPC":
         import random
@@ -335,7 +336,7 @@ with tabs[2]:
                         temp.remove_edge(*edge)
                 if node in temp:
                     total += len(nx.node_connected_component(temp,node))
-            scores[node] = total / 20
+            scores[node] = total/20
 
     elif method == "Bottleneck":
         scores = nx.betweenness_centrality(H)
@@ -347,38 +348,38 @@ with tabs[2]:
         scores = nx.clustering(H)
 
     elif method == "MNC":
-        scores = {}
+        scores={}
         for node in H.nodes():
-            neighbors = list(H.neighbors(node))
-            sub = H.subgraph(neighbors)
-            if len(sub) == 0:
-                scores[node] = 0
+            neighbors=list(H.neighbors(node))
+            sub=H.subgraph(neighbors)
+            if len(sub)==0:
+                scores[node]=0
             else:
-                largest = max(nx.connected_components(sub), key=len)
-                scores[node] = len(largest)
+                largest=max(nx.connected_components(sub),key=len)
+                scores[node]=len(largest)
 
     elif method == "DMNC":
-        scores = {}
+        scores={}
         for node in H.nodes():
-            neighbors = list(H.neighbors(node))
-            sub = H.subgraph(neighbors)
-            if sub.number_of_nodes() < 2:
-                scores[node] = 0
+            neighbors=list(H.neighbors(node))
+            sub=H.subgraph(neighbors)
+            if sub.number_of_nodes()<2:
+                scores[node]=0
             else:
-                largest_nodes = max(nx.connected_components(sub), key=len)
-                largest = sub.subgraph(largest_nodes)
-                E = largest.number_of_edges()
-                N = largest.number_of_nodes()
-                scores[node] = E/(N**1.7)
+                largest_nodes=max(nx.connected_components(sub),key=len)
+                largest=sub.subgraph(largest_nodes)
+                E=largest.number_of_edges()
+                N=largest.number_of_nodes()
+                scores[node]=E/(N**1.7)
 
     elif method == "MCC":
-        scores = {n:0 for n in H.nodes()}
-        cliques = list(nx.find_cliques(H))
+        scores={n:0 for n in H.nodes()}
+        cliques=list(nx.find_cliques(H))
         for clique in cliques:
-            k = len(clique)
-            if k >= 3:
+            k=len(clique)
+            if k>=3:
                 for node in clique:
-                    scores[node] += (k-1)*(k-2)//2
+                    scores[node]+=(k-1)*(k-2)//2
 
     # ----------------------------
     # Ranking
@@ -390,57 +391,62 @@ with tabs[2]:
 
     hub = ranking.head(hub_count)
 
-    # ----------------------------
-    # Visualization Mode
-    # ----------------------------
-    view_mode = st.radio(
-        "Visualization Mode",
-        ["Hub Subnetwork", "Full Network"]
-    )
-
-    if view_mode == "Hub Subnetwork":
-        plot_graph = H.subgraph(hub["Gene"].tolist())
-    else:
-        plot_graph = H
+    st.subheader("Hub Ranking Table")
+    st.dataframe(hub)
 
     # ----------------------------
-    # Color Logic (CORRECTED)
+    # STRUCTURED LAYOUT (LIKE IMAGE)
     # ----------------------------
-    top3 = ranking.head(3)["Gene"].tolist()
-    bottom3 = ranking.tail(3)["Gene"].tolist()
+    top_nodes = hub["Gene"].tolist()
+    subG = H.subgraph(top_nodes)
 
+    pos = {}
+    y_level = 0
+    for i, node in enumerate(top_nodes):
+        pos[node] = (i % 5, - (i // 5))
+
+    # ----------------------------
+    # COLOR LOGIC (RED → ORANGE → YELLOW)
+    # ----------------------------
     node_colors = []
-    for node in plot_graph.nodes():
-        if node in top3:
+    for i, node in enumerate(top_nodes):
+        if i == 0:
+            node_colors.append("#d73027")  # strongest red
+        elif i < 3:
             node_colors.append("orange")
-        elif node in bottom3:
-            node_colors.append("yellow")
         else:
-            node_colors.append("skyblue")
+            node_colors.append("#fee08b")  # yellow gradient
 
     # ----------------------------
-    # Plot
+    # DRAW BOX STYLE
     # ----------------------------
-    pos = nx.spring_layout(plot_graph, seed=42)
+    fig, ax = plt.subplots(figsize=(12,8))
 
-    fig, ax = plt.subplots(figsize=(9,7))
-    nx.draw(
-        plot_graph,
+    nx.draw_networkx_edges(subG, pos, ax=ax, width=1)
+
+    nx.draw_networkx_nodes(
+        subG,
         pos,
         node_color=node_colors,
-        node_size=2500 if view_mode=="Hub Subnetwork" else 900,
-        with_labels=True,
+        node_size=5000,
+        node_shape="s",  # square boxes
         ax=ax
     )
 
+    nx.draw_networkx_labels(
+        subG,
+        pos,
+        font_size=10,
+        font_weight="bold",
+        ax=ax
+    )
+
+    ax.set_axis_off()
     st.pyplot(fig)
 
     # ----------------------------
-    # Tables & Downloads
+    # Downloads
     # ----------------------------
-    st.subheader("Hub Gene Ranking")
-    st.dataframe(hub)
-
     st.download_button(
         "Download Hub Ranking Table",
         hub.to_csv(index=False),
@@ -448,25 +454,10 @@ with tabs[2]:
         mime="text/csv"
     )
 
-    gene_table = pd.DataFrame(selected_genes, columns=["Gene"])
-    st.download_button(
-        f"Download {network_mode} Gene List",
-        gene_table.to_csv(index=False),
-        f"{network_mode.replace(' ','_')}_genes.csv",
-        mime="text/csv"
-    )
-
-    # ----------------------------
-    # Explanation
-    # ----------------------------
     st.info(f"""
-Hub genes selected using **{method}** algorithm.
-
-Top 3 genes (orange) → strongest topological influence  
-Bottom 3 genes (yellow) → weakest influence  
-
-Network Source: STRING (Homo sapiens)
-Network Type: {network_mode}
+Hub genes identified using {method}.
+Top-ranked genes are highlighted in red/orange.
+Layout structured based on ranking (Cytoscape-style view).
     """)
 # ==================================================
 # TAB 4 — ENRICHMENT + GO VISUALIZATION
