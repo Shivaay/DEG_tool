@@ -222,100 +222,226 @@ with tabs[1]:
 # ==================================================
 # TAB 3 — PPI (Advanced CytoHubba + Up/Down Split)
 # ==================================================
+# ==================================================
+# TAB 2 — FULL CYTOHUBBA HUB GENE ANALYSIS
+# ==================================================
 with tabs[2]:
 
-    st.subheader("Protein–Protein Interaction Network (STRING)")
+    st.header("🔗 Protein–Protein Interaction Network (cytoHubba Analysis)")
 
-    @st.cache_data(ttl=3600)
-    def fetch_ppi(g):
-        if len(g)==0:
-            return pd.DataFrame()
-        try:
-            r = requests.post(
-                "https://string-db.org/api/tsv/network",
-                data={"identifiers":"%0d".join(g[:150]),"species":9606},
-                timeout=20
-            )
-            return pd.read_csv(io.StringIO(r.text), sep="\t")
-        except:
-            return pd.DataFrame()
-
-    ppi = fetch_ppi(genes)
-    st.session_state["ppi"] = ppi
-
-    if ppi.empty:
-        st.warning("No PPI interactions found.")
+    if deg.empty or ppi.empty:
+        st.warning("Please upload DEG results and PPI network first.")
         st.stop()
 
-    G = nx.from_pandas_edgelist(ppi,"preferredName_A","preferredName_B")
+    # -----------------------------------------
+    # DEG SEPARATION
+    # -----------------------------------------
+    up_genes = deg[deg[logfc_col] > 0][gene_col].tolist()
+    down_genes = deg[deg[logfc_col] < 0][gene_col].tolist()
 
-    st.info("""
-    Hub genes are identified using CytoHubba-style topological algorithms.
-    Nodes ranked based on network centrality importance within STRING PPI.
-    """)
-
-    # =============================
-    # CYTOHUBBA MULTI-METRIC
-    # =============================
-    def compute_cytohubba(G):
-
-        scores = {}
-
-        scores["Degree"] = dict(G.degree())
-        scores["Betweenness Centrality"] = nx.betweenness_centrality(G)
-        scores["Closeness Centrality"] = nx.closeness_centrality(G)
-        scores["Stress Centrality"] = nx.stress_centrality(G)
-        scores["Radiality"] = nx.closeness_centrality(G)
-        scores["Bottleneck"] = nx.betweenness_centrality(G)
-        scores["Eccentricity"] = nx.eccentricity(G)
-        scores["Clustering Coefficient"] = nx.clustering(G)
-        scores["MNC"] = {n: len(list(G.neighbors(n))) for n in G.nodes}
-        scores["DMNC"] = {n: len(list(G.neighbors(n)))/max(len(G.nodes),1) for n in G.nodes}
-        scores["MCC"] = {n: len(list(nx.cliques_containing_node(G,n))) for n in G.nodes}
-
-        return scores
-
-    cyto_scores = compute_cytohubba(G)
-
-    metric = st.selectbox("Select CytoHubba Algorithm", list(cyto_scores.keys()))
-    hub_count = st.slider("Hub Count",5,50,10)
-
-    hub_df = (
-        pd.DataFrame(cyto_scores[metric].items(),columns=["Gene","Score"])
-        .sort_values("Score",ascending=False)
+    mode = st.radio(
+        "Select Network Construction Mode",
+        ["All DEGs", "Upregulated Only", "Downregulated Only"]
     )
 
-    hub = hub_df.head(hub_count)
-    hubs = hub["Gene"].tolist()
+    if mode == "Upregulated Only":
+        selected_genes = up_genes
+    elif mode == "Downregulated Only":
+        selected_genes = down_genes
+    else:
+        selected_genes = deg[gene_col].tolist()
 
-    subG = G.subgraph(hubs)
-    pos = nx.spring_layout(subG)
+    # -----------------------------------------
+    # PPI FILTERING
+    # -----------------------------------------
+    ppi_filtered = ppi[
+        (ppi["source"].isin(selected_genes)) &
+        (ppi["target"].isin(selected_genes))
+    ]
 
-    cmap = plt.cm.autumn
-    node_colors = [cmap(i/max(len(hubs)-1,1)) for i in range(len(hubs))]
+    if ppi_filtered.empty:
+        st.warning("No PPI edges found for selected gene set.")
+        st.stop()
 
-    fig_ppi, ax = plt.subplots(figsize=(8,6))
-    nx.draw(subG,pos,node_color=node_colors,node_size=2800,with_labels=True,ax=ax)
+    G = nx.from_pandas_edgelist(ppi_filtered, "source", "target")
 
-    st.pyplot(fig_ppi)
-    download_figure(fig_ppi,"PPI_HubNetwork")
+    if len(G.nodes()) < 3:
+        st.warning("Network too small for hub analysis.")
+        st.stop()
 
-    st.dataframe(hub)
-    ALL_TABLES["HubGenes"] = hub
+    # ==================================================
+    # CYTOHUBBA IMPLEMENTATION
+    # ==================================================
+    import random
 
-    # =============================
-    # UP vs DOWN PPI
-    # =============================
+    def compute_cytohubba_scores(G, method):
 
-    st.subheader("Upregulated PPI Subnetwork")
-    G_up = G.subgraph(up_genes)
-    st.write(f"Nodes: {G_up.number_of_nodes()}, Edges: {G_up.number_of_edges()}")
+        if method == "Degree":
+            return dict(G.degree())
 
-    st.subheader("Downregulated PPI Subnetwork")
-    G_down = G.subgraph(down_genes)
-    st.write(f"Nodes: {G_down.number_of_nodes()}, Edges: {G_down.number_of_edges()}")
+        if method == "Betweenness":
+            return nx.betweenness_centrality(G)
 
+        if method == "Closeness":
+            return nx.closeness_centrality(G)
 
+        if method == "Stress":
+            return nx.stress_centrality(G)
+
+        if method == "Radiality":
+            if nx.is_connected(G):
+                ecc = nx.eccentricity(G)
+                diameter = nx.diameter(G)
+            else:
+                ecc = nx.eccentricity(G, sp=nx.shortest_path_length(G))
+                diameter = max(ecc.values())
+            return {n: (diameter - ecc[n]) / diameter for n in G.nodes()}
+
+        if method == "EPC":
+            scores = {}
+            simulations = 50
+            for node in G.nodes():
+                total = 0
+                for _ in range(simulations):
+                    H = G.copy()
+                    for edge in list(H.edges()):
+                        if random.random() < 0.5:
+                            H.remove_edge(*edge)
+                    if node in H:
+                        comp_size = len(nx.node_connected_component(H, node))
+                        total += comp_size
+                scores[node] = total / simulations
+            return scores
+
+        if method == "Bottleneck":
+            return nx.betweenness_centrality(G)
+
+        if method == "Eccentricity":
+            if nx.is_connected(G):
+                return nx.eccentricity(G)
+            else:
+                return nx.eccentricity(G, sp=nx.shortest_path_length(G))
+
+        if method == "Clustering":
+            return nx.clustering(G)
+
+        if method == "MNC":
+            scores = {}
+            for node in G.nodes():
+                neighbors = list(G.neighbors(node))
+                subgraph = G.subgraph(neighbors)
+                if len(subgraph) == 0:
+                    scores[node] = 0
+                else:
+                    largest_cc = max(nx.connected_components(subgraph), key=len)
+                    scores[node] = len(largest_cc)
+            return scores
+
+        if method == "DMNC":
+            scores = {}
+            for node in G.nodes():
+                neighbors = list(G.neighbors(node))
+                subgraph = G.subgraph(neighbors)
+
+                if len(subgraph) <= 2:
+                    scores[node] = 0
+                else:
+                    largest_cc_nodes = max(nx.connected_components(subgraph), key=len)
+                    largest_cc = subgraph.subgraph(largest_cc_nodes)
+                    E = largest_cc.number_of_edges()
+                    N = largest_cc.number_of_nodes()
+                    scores[node] = E / (N ** 1.7)
+            return scores
+
+        if method == "MCC":
+            scores = {n: 0 for n in G.nodes()}
+            cliques = list(nx.find_cliques(G))
+            for clique in cliques:
+                size = len(clique)
+                if size >= 3:
+                    for node in clique:
+                        scores[node] += (size - 1) * (size - 2) // 2
+            return scores
+
+    # -----------------------------------------
+    # METHOD SELECTOR
+    # -----------------------------------------
+    method = st.selectbox(
+        "Select cytoHubba Algorithm",
+        [
+            "Degree",
+            "Betweenness",
+            "Closeness",
+            "Stress",
+            "Radiality",
+            "EPC",
+            "Bottleneck",
+            "Eccentricity",
+            "Clustering",
+            "MNC",
+            "DMNC",
+            "MCC"
+        ]
+    )
+
+    with st.spinner("Computing hub scores..."):
+        scores = compute_cytohubba_scores(G, method)
+
+    # -----------------------------------------
+    # RANKING
+    # -----------------------------------------
+    sorted_genes = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
+    hub_df = pd.DataFrame(sorted_genes, columns=["Gene", "Score"])
+    st.session_state["hub_genes"] = hub_df
+
+    st.subheader("Top Hub Genes")
+    st.dataframe(hub_df.head(10))
+
+    # -----------------------------------------
+    # COLOR LOGIC
+    # -----------------------------------------
+    top3 = hub_df.head(3)["Gene"].tolist()
+    bottom3 = hub_df.tail(3)["Gene"].tolist()
+
+    node_colors = []
+    for node in G.nodes():
+        if node in top3:
+            node_colors.append("orange")
+        elif node in bottom3:
+            node_colors.append("yellow")
+        else:
+            node_colors.append("skyblue")
+
+    # -----------------------------------------
+    # NETWORK VISUALIZATION
+    # -----------------------------------------
+    fig, ax = plt.subplots(figsize=(12,10))
+    pos = nx.spring_layout(G, seed=42)
+
+    nx.draw(
+        G,
+        pos,
+        node_color=node_colors,
+        with_labels=True,
+        node_size=600,
+        edge_color="gray",
+        font_size=8,
+        ax=ax
+    )
+
+    st.pyplot(fig)
+    download_figure(fig, "PPI_cytoHubba_Network")
+
+    st.info(f"""
+Hub genes ranked using {method} algorithm.
+
+Orange → Top 3 hub genes (highest centrality)
+Yellow → Bottom 3 (least central nodes)
+
+Network constructed from {mode}.
+Edges retained only if both interacting proteins are in selected DEG set.
+""")
 # ==================================================
 # TAB 4 — ENRICHMENT + GO VISUALIZATION
 # ==================================================
