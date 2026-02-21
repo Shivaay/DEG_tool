@@ -225,13 +225,20 @@ with tabs[1]:
 # ==================================================
 # TAB 3 — STRUCTURED CYTOHUBBA PPI NETWORK
 # ==================================================
+# ==================================================
+# TAB 2 — PPI (STRING + cytoHubba Accurate)
+# ==================================================
 with tabs[2]:
 
     st.header("🔗 Protein–Protein Interaction Network (Cytoscape Style)")
 
-    # ----------------------------
-    # Network Type Selection
-    # ----------------------------
+    st.caption("""
+    Database: STRING v11.5  
+    Species: Homo sapiens (9606)  
+    Confidence threshold: combined_score ≥ 700  
+    Hub detection: cytoHubba topological algorithms
+    """)
+
     network_mode = st.radio(
         "Select Network Type",
         ["All DEGs", "Upregulated Only", "Downregulated Only"]
@@ -244,69 +251,41 @@ with tabs[2]:
     else:
         selected_genes = genes
 
-    if len(selected_genes) == 0:
+    if not selected_genes:
         st.warning("No genes available.")
         st.stop()
 
-    # ----------------------------
-    # STRING Fetch
-    # ----------------------------
     @st.cache_data(ttl=3600)
     def fetch_ppi(g):
-        try:
-            r = requests.post(
-                "https://string-db.org/api/tsv/network",
-                data={"identifiers":"%0d".join(g[:150]),"species":9606},
-                timeout=20
-            )
-            return pd.read_csv(io.StringIO(r.text), sep="\t")
-        except:
-            return pd.DataFrame()
+        r = requests.post(
+            "https://string-db.org/api/tsv/network",
+            data={"identifiers": "%0d".join(g[:150]), "species": 9606}
+        )
+        df = pd.read_csv(io.StringIO(r.text), sep="\t")
+        return df[df["combined_score"] >= 700]
 
     ppi = fetch_ppi(selected_genes)
 
     if ppi.empty:
-        st.warning("No interactions found.")
+        st.warning("No high-confidence interactions found.")
         st.stop()
 
     G = nx.from_pandas_edgelist(
-        ppi,
-        "preferredName_A",
-        "preferredName_B"
+        ppi, "preferredName_A", "preferredName_B"
     )
 
-    if G.number_of_nodes() == 0:
-        st.warning("Graph empty.")
-        st.stop()
-
-    # Work on largest component
     largest_cc = max(nx.connected_components(G), key=len)
     H = G.subgraph(largest_cc).copy()
 
-    # ----------------------------
-    # 12 CytoHubba Algorithms
-    # ----------------------------
     method = st.selectbox(
         "Hub Detection Algorithm",
-        [
-            "Degree",
-            "Betweenness Centrality",
-            "Closeness Centrality",
-            "Stress Centrality",
-            "Radiality",
-            "EPC",
-            "Bottleneck",
-            "Eccentricity",
-            "Clustering Coefficient",
-            "MNC",
-            "DMNC",
-            "MCC"
-        ]
+        ["Degree","Betweenness Centrality","Closeness Centrality",
+         "Stress Centrality","Radiality","EPC","Bottleneck",
+         "Eccentricity","Clustering Coefficient","MNC","DMNC","MCC"]
     )
 
     hub_count = st.slider("Number of Top Hubs", 5, 30, 10)
 
-    # ---- SAFE IMPLEMENTATIONS ----
     if method == "Degree":
         scores = dict(H.degree())
 
@@ -317,26 +296,37 @@ with tabs[2]:
         scores = nx.closeness_centrality(H)
 
     elif method == "Stress Centrality":
-        scores = nx.betweenness_centrality(H, normalized=False)
+        scores = {n:0 for n in H.nodes()}
+        for s in H.nodes():
+            paths = nx.single_source_shortest_path(H, s)
+            for t in paths:
+                if s != t:
+                    for node in paths[t]:
+                        if node not in (s,t):
+                            scores[node]+=1
 
     elif method == "Radiality":
         ecc = nx.eccentricity(H)
         diameter = max(ecc.values())
-        scores = {n:(diameter-ecc[n])/diameter for n in H.nodes()}
+        scores = {
+            n: sum(diameter+1-nx.shortest_path_length(H,n,t)
+                   for t in H.nodes() if t!=n)/(len(H.nodes())-1)
+            for n in H.nodes()
+        }
 
     elif method == "EPC":
         import random
-        scores = {}
+        scores={}
         for node in H.nodes():
-            total = 0
+            total=0
             for _ in range(20):
-                temp = H.copy()
+                temp=H.copy()
                 for edge in list(temp.edges()):
-                    if random.random() < 0.3:
+                    if random.random()<0.3:
                         temp.remove_edge(*edge)
                 if node in temp:
-                    total += len(nx.node_connected_component(temp,node))
-            scores[node] = total/20
+                    total+=len(nx.node_connected_component(temp,node))
+            scores[node]=total/20
 
     elif method == "Bottleneck":
         scores = nx.betweenness_centrality(H)
@@ -378,224 +368,97 @@ with tabs[2]:
         for clique in cliques:
             k=len(clique)
             if k>=3:
+                weight=(k-1)*(k-2)//2
                 for node in clique:
-                    scores[node]+=(k-1)*(k-2)//2
+                    scores[node]+=weight
 
-    # ----------------------------
-    # Ranking
-    # ----------------------------
-    ranking = (
-        pd.DataFrame(scores.items(), columns=["Gene","Score"])
-        .sort_values("Score", ascending=False)
-    )
+    ranking = pd.DataFrame(scores.items(),columns=["Gene","Score"])\
+        .sort_values("Score",ascending=False)
 
     hub = ranking.head(hub_count)
-
     st.subheader("Hub Ranking Table")
     st.dataframe(hub)
-
-    # ----------------------------
-    # STRUCTURED LAYOUT (LIKE IMAGE)
-    # ----------------------------
-    top_nodes = hub["Gene"].tolist()
-    subG = H.subgraph(top_nodes)
-
-    pos = {}
-    y_level = 0
-    for i, node in enumerate(top_nodes):
-        pos[node] = (i % 5, - (i // 5))
-
-    # ----------------------------
-    # COLOR LOGIC (RED → ORANGE → YELLOW)
-    # ----------------------------
-    node_colors = []
-    for i, node in enumerate(top_nodes):
-        if i == 0:
-            node_colors.append("#d73027")  # strongest red
-        elif i < 3:
-            node_colors.append("orange")
-        else:
-            node_colors.append("#fee08b")  # yellow gradient
-
-    # ----------------------------
-    # DRAW BOX STYLE
-    # ----------------------------
-    fig, ax = plt.subplots(figsize=(12,8))
-
-    nx.draw_networkx_edges(subG, pos, ax=ax, width=1)
-
-    nx.draw_networkx_nodes(
-        subG,
-        pos,
-        node_color=node_colors,
-        node_size=5000,
-        node_shape="s",  # square boxes
-        ax=ax
-    )
-
-    nx.draw_networkx_labels(
-        subG,
-        pos,
-        font_size=10,
-        font_weight="bold",
-        ax=ax
-    )
-
-    ax.set_axis_off()
-    st.pyplot(fig)
-
-    # ----------------------------
-    # Downloads
-    # ----------------------------
-    st.download_button(
-        "Download Hub Ranking Table",
-        hub.to_csv(index=False),
-        "hub_ranking.csv",
-        mime="text/csv"
-    )
-
-    st.info(f"""
-Hub genes identified using {method}.
-Top-ranked genes are highlighted in red/orange.
-Layout structured based on ranking (Cytoscape-style view).
-    """)
 # ==================================================
 # TAB 4 — ENRICHMENT + GO VISUALIZATION
 # ==================================================
 with tabs[3]:
 
+    st.header("🧠 Functional Enrichment (FDR Corrected)")
+
     gp = GProfiler(return_dataframe=True)
 
     @st.cache_data
     def enrich(g):
-        return gp.profile(organism="hsapiens", query=g) if g else pd.DataFrame()
+        return gp.profile(
+            organism="hsapiens",
+            query=g,
+            significance_threshold_method="fdr"
+        )
 
     up_en = enrich(up_genes)
     down_en = enrich(down_genes)
 
-    def enrichment_tables(df_en, label):
-        for src in ["GO:BP","GO:MF","GO:CC","KEGG"]:
-            st.subheader(f"{label} — {src}")
-            sub = df_en[df_en["source"]==src]
+    for df,label in [(up_en,"Upregulated"),(down_en,"Downregulated")]:
+        df = df[df["p_value"] < 0.05].sort_values("p_value")
 
+        for src in ["GO:BP","GO:MF","GO:CC","KEGG","REAC"]:
+            sub = df[df["source"]==src]
             if not sub.empty:
-                st.dataframe(sub[["name","p_value","intersection_size"]])
-
-                # ===== GO BAR =====
-                fig_bar, ax_bar = plt.subplots()
-                top = sub.head(10)
-                ax_bar.barh(top["name"], -np.log10(top["p_value"]))
-                ax_bar.set_title("GO Bar Plot")
-                st.pyplot(fig_bar)
-                download_figure(fig_bar,f"{label}_{src}_Bar")
-
-                # ===== GO PIE =====
-                fig_pie, ax_pie = plt.subplots()
-                ax_pie.pie(top["intersection_size"], labels=top["name"], autopct="%1.1f%%")
-                ax_pie.set_title("GO Pie Chart")
-                st.pyplot(fig_pie)
-                download_figure(fig_pie,f"{label}_{src}_Pie")
-
-    enrichment_tables(up_en,"Upregulated")
-    enrichment_tables(down_en,"Downregulated")
-
-# ==================================================
-# TAB 5 — miRNA + TF
-# ==================================================
+                st.subheader(f"{label} — {src}")
+                st.dataframe(sub[["name","p_value","intersection_size"]].head(15))
 # ==================================================
 # TAB 5 — miRNA + TF Regulatory Networks
 # ==================================================
 with tabs[4]:
 
-    # ------------------------------
-    # miRNA
-    # ------------------------------
+    st.header("🧬 Regulatory Networks")
+
+    # ---------------- miRTarBase ----------------
+    st.subheader("miRNA Regulatory Network (miRTarBase Validated)")
+
     @st.cache_data(ttl=86400)
-    def fetch_mirtar(glist):
-        rows=[("miR-validated",g) for g in glist[:20]]
-        return pd.DataFrame(rows,columns=["miRNA","Gene"])
+    def fetch_mirtarbase():
+        url = "https://mirtarbase.cuhk.edu.cn/~miRTarBase/miRTarBase_MTI.xlsx"
+        df = pd.read_excel(url)
+        return df[df["Species (Target Gene)"]=="Homo sapiens"]
 
-    mir = fetch_mirtar(genes)
+    mirtar = fetch_mirtarbase()
 
-    st.subheader("miRNA Regulatory Network")
-    st.dataframe(mir)
+    mir_filtered = mirtar[mirtar["Target Gene"].isin(genes)]
+    mir_filtered = mir_filtered[["miRNA","Target Gene","Support Type"]]
 
-    if not mir.empty:
+    st.dataframe(mir_filtered.head(50))
 
-        Gmir = nx.from_pandas_edgelist(mir,"miRNA","Gene")
-        centrality = nx.degree_centrality(Gmir)
-
-        sorted_nodes = sorted(centrality.items(), key=lambda x: x[1], reverse=True)
-
-        top3 = [n for n,_ in sorted_nodes[:3]]
-        next3 = [n for n,_ in sorted_nodes[3:6]]
-
-        colors = []
-        for node in Gmir.nodes():
-            if node in top3:
-                colors.append("orange")
-            elif node in next3:
-                colors.append("yellow")
-            else:
-                colors.append("lightgrey")
-
-        st.info("""
-        miRNAs ranked based on Degree Centrality.
-        Top 3 regulators shown in orange.
-        Next 3 in yellow.
-        """)
-
+    if not mir_filtered.empty:
+        Gmir = nx.from_pandas_edgelist(
+            mir_filtered, "miRNA","Target Gene"
+        )
         fig_mir, ax = plt.subplots()
-        nx.draw(Gmir,with_labels=True,node_color=colors,node_size=1800,ax=ax)
+        nx.draw(Gmir,with_labels=True,node_size=1500,ax=ax)
         st.pyplot(fig_mir)
-        download_figure(fig_mir,"miRNA_Network")
 
-    # ------------------------------
-    # TF
-    # ------------------------------
+    # ---------------- TRRUST ----------------
+    st.subheader("Transcription Factor Network (TRRUST v2)")
+
     @st.cache_data(ttl=86400)
-    def fetch_jaspar(glist):
-        rows=[("TF_predicted",g) for g in glist[:20]]
-        return pd.DataFrame(rows,columns=["TF","Gene"])
+    def fetch_trrust():
+        url = "https://www.grnpedia.org/trrust/data/trrust_rawdata.human.tsv"
+        df = pd.read_csv(url, sep="\t", header=None)
+        df.columns=["TF","Target","Regulation","PMID"]
+        return df
 
-    tf_df = fetch_jaspar(genes)
+    trrust = fetch_trrust()
+    tf_filtered = trrust[trrust["Target"].isin(genes)]
 
-    st.subheader("Transcription Factor Network")
-    st.dataframe(tf_df)
+    st.dataframe(tf_filtered.head(50))
 
-    if not tf_df.empty:
-
-        Gtf = nx.from_pandas_edgelist(tf_df,"TF","Gene")
-        centrality = nx.degree_centrality(Gtf)
-
-        sorted_nodes = sorted(centrality.items(), key=lambda x: x[1], reverse=True)
-
-        top3 = [n for n,_ in sorted_nodes[:3]]
-        next3 = [n for n,_ in sorted_nodes[3:6]]
-
-        colors = []
-        for node in Gtf.nodes():
-            if node in top3:
-                colors.append("orange")
-            elif node in next3:
-                colors.append("yellow")
-            else:
-                colors.append("lightgrey")
-
-        st.info("""
-        TFs ranked based on Degree Centrality.
-        Top 3 regulators shown in orange.
-        Next 3 in yellow.
-        """)
-
+    if not tf_filtered.empty:
+        Gtf = nx.from_pandas_edgelist(
+            tf_filtered,"TF","Target"
+        )
         fig_tf, ax = plt.subplots()
-        nx.draw(Gtf,with_labels=True,node_color=colors,node_size=1800,ax=ax)
+        nx.draw(Gtf,with_labels=True,node_size=1500,ax=ax)
         st.pyplot(fig_tf)
-        download_figure(fig_tf,"TF_Network")
-
-# ==================================================
-# TAB 6 — ADAPTIVE
-# ==================================================
 # ==================================================
 # TAB 5 — BIOMATH ENGINE
 # ==
